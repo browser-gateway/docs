@@ -1,8 +1,8 @@
 # browser-gateway docs
 
-Public documentation site for browser-gateway. Deploys to `docs.browsergateway.com`.
+Source for [docs.browsergateway.com](https://docs.browsergateway.com).
 
-Built with [Fumadocs](https://fumadocs.dev) on Next.js 15 + MDX + Tailwind 4.
+Built with [Fumadocs](https://fumadocs.dev) on Next.js 16, MDX, Tailwind 4.
 
 ## Develop
 
@@ -15,44 +15,41 @@ Then visit `http://localhost:3000`.
 
 ## Content
 
-MDX pages live in `content/docs/`. Add a page:
+MDX pages live in `content/docs/`. To add a page:
 
-1. Create `content/docs/<slug>.mdx` with frontmatter (`title`, `description`)
-2. Add the slug to `content/docs/meta.json` in the `pages` array (order matters for sidebar)
-3. Save; hot-reload picks it up
+1. Create `content/docs/<slug>.mdx` with frontmatter (`title`, `description`).
+2. Add the slug to `content/docs/meta.json` in the `pages` array (order controls the sidebar).
+3. Save. Hot reload picks it up.
 
-For nested groups, create `content/docs/<group>/meta.json` with its own title + pages.
+For a nested group, create `content/docs/<group>/meta.json` with its own title + pages.
 
-## Deploy
-
-The `main` branch auto-deploys to `docs.browsergateway.com` via Vercel:
-
-1. Import this folder as a Vercel project (once)
-2. Set custom domain to `docs.browsergateway.com`
-3. Every push to `main` triggers a build
-
-Manual deploy from CLI:
+## Lint
 
 ```bash
-npx vercel --prod
+npm run lint
 ```
+
+Fails on em-dashes, marketing fluff (`just`, `simply`, `awesome`, `powerful`, ...), and casual narrator voice. See `scripts/lint-style.mjs` for the full rule set.
 
 ## Structure
 
 ```
 docs/
-├── app/                      Next.js app router
-│   ├── (home)/page.tsx       Landing page
-│   ├── docs/                 Docs routes
-│   │   ├── layout.tsx        Sidebar layout
-│   │   └── [[...slug]]/page.tsx
-│   ├── api/search/route.ts   Orama search endpoint
-│   ├── global.css            Tailwind + Fumadocs styles
-│   └── layout.tsx            Root layout
-├── content/docs/             MDX content
-├── lib/source.ts             Content loader
-├── mdx-components.tsx        MDX overrides
-├── source.config.ts          fumadocs-mdx config
-├── next.config.mjs           Next + fumadocs-mdx plugin
-└── vercel.json               Vercel deploy hints
+├── app/
+│   ├── [[...slug]]/page.tsx    All docs pages (root = Introduction)
+│   ├── api/pages/[[...slug]]   Raw MDX endpoint (Copy Page consumes this)
+│   ├── api/search/route.ts     Orama search endpoint
+│   ├── icon.png                Favicon
+│   ├── apple-icon.png          iOS home-screen icon
+│   ├── robots.ts               robots.txt
+│   ├── sitemap.ts              sitemap.xml
+│   ├── global.css              Tailwind + Fumadocs styles
+│   └── layout.tsx              Root layout (nav, sidebar, metadata)
+├── components/
+│   └── copy-page-actions.tsx   Custom split-button + LLM dropdown
+├── content/docs/               MDX pages + meta.json for sidebar
+├── lib/source.ts               Content loader (baseUrl = "/")
+├── mdx-components.tsx          MDX component overrides
+├── scripts/lint-style.mjs      Style linter
+└── source.config.ts            fumadocs-mdx config
 ```
