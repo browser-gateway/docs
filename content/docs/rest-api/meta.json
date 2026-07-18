@@ -1,0 +1,19 @@
+{
+  "title": "REST API",
+  "pages": [
+    "index",
+    "auth",
+    "config",
+    "content",
+    "health",
+    "json-version",
+    "profiles",
+    "providers",
+    "replays",
+    "scrape",
+    "screenshot",
+    "sessions",
+    "status",
+    "web"
+  ]
+}

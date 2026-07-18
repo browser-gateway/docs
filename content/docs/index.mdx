@@ -1,0 +1,36 @@
+---
+title: Introduction
+description: browser-gateway is the control plane for browser fleets.
+---
+
+**browser-gateway routes WebSocket connections across any browser provider you already have**. Browserless, Steel, Browserbase, Cloudflare Browser Rendering, raw Chrome, or your own runtime, and adds the layer everyone reinvents on top: profile capture, session replay, cost control, observability.
+
+Think **OpenRouter for browsers**. Same idea: you bring the backends, we handle the routing, state, and dashboard.
+
+## What it does
+
+- **Router**: priority chains, weighted round-robin, latency-aware, least-connections. Failover and cooldowns per provider.
+- **Profiles**: capture cookies + localStorage + IndexedDB on session end, inject on next connect. Encrypted at rest with a key you control.
+- **Session replay**: record CDP screencast frames per session, play them back in the dashboard.
+- **Live view**: watch any session live from the dashboard.
+- **REST + MCP + WebSocket**: three protocols, one gateway. Puppeteer, Playwright, Stagehand, MCP clients all work unchanged.
+- **Dashboard**: providers, sessions, profiles, replays, logs, live playground, config editor.
+
+## When to use it
+
+- You use multiple browser providers and want a single endpoint with failover
+- You run agents that need to resume logged-in state across days
+- You need to review what an agent saw when it broke
+- You want to swap providers without touching client code
+
+## When NOT to use it
+
+- You need a full browser automation API, use Playwright, Puppeteer, Stagehand
+- You need managed browsers-as-a-service, use Browserless, Steel, Browserbase directly
+- You need anti-detect / stealth, different product category
+
+## Next
+
+- [Quickstart](/quickstart): 5-minute install and first connection
+- [Configuration](/configuration): `gateway.yml` reference
+- [Profiles](/profiles): capture / inject / provider pinning

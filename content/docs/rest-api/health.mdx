@@ -1,0 +1,19 @@
+---
+title: "Health"
+description: "Liveness probe. Always public, no auth required."
+---
+
+{/* AUTO-GENERATED. Do not edit. Regenerate with `npm run docs:gen-rest` in the code repo. */}
+{/* Edit descriptions in scripts/gen-rest-docs.ts (RESOURCE_HELP + JSDoc above each route). */}
+
+Returns HTTP 200 with a timestamp when the gateway is running. Use this for uptime monitoring, container health checks, and load-balancer liveness probes.
+
+## Endpoints
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/health` |  |
+
+## Source
+
+- [`src/server/app.ts`](https://github.com/browser-gateway/browser-gateway/blob/main/src/server/app.ts)

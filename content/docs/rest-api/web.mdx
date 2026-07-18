@@ -1,0 +1,23 @@
+---
+title: "Dashboard"
+description: "Dashboard static files + login endpoints."
+---
+
+{/* AUTO-GENERATED. Do not edit. Regenerate with `npm run docs:gen-rest` in the code repo. */}
+{/* Edit descriptions in scripts/gen-rest-docs.ts (RESOURCE_HELP + JSDoc above each route). */}
+
+Serves the dashboard from `/web/*` and handles HttpOnly-cookie login at `/web/auth`. Not intended for programmatic use.
+
+## Endpoints
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/web` |  |
+| `GET` | `/web/*` |  |
+| `POST` | `/web/auth` |  |
+| `GET` | `/web/auth/check` |  |
+| `POST` | `/web/logout` |  |
+
+## Source
+
+- [`src/server/app.ts`](https://github.com/browser-gateway/browser-gateway/blob/main/src/server/app.ts)

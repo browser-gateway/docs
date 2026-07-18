@@ -1,0 +1,22 @@
+{
+  "title": "Docs",
+  "pages": [
+    "index",
+    "quickstart",
+    "getting-started",
+    "---Config & Providers---",
+    "configuration",
+    "providers",
+    "---Sessions & State---",
+    "profiles",
+    "sessions",
+    "replays",
+    "---API Surface---",
+    "rest-api",
+    "mcp",
+    "cli",
+    "dashboard",
+    "---Operating---",
+    "operating"
+  ]
+}

@@ -1,0 +1,21 @@
+---
+title: "Config"
+description: "Read, validate, and update gateway.yml over HTTP."
+---
+
+{/* AUTO-GENERATED. Do not edit. Regenerate with `npm run docs:gen-rest` in the code repo. */}
+{/* Edit descriptions in scripts/gen-rest-docs.ts (RESOURCE_HELP + JSDoc above each route). */}
+
+Read the running configuration, validate a proposed YAML, or replace the whole config file. All writes are fsync'd and backed up.
+
+## Endpoints
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/v1/config` |  |
+| `PUT` | `/v1/config` |  |
+| `POST` | `/v1/config/validate` |  |
+
+## Source
+
+- [`src/server/app.ts`](https://github.com/browser-gateway/browser-gateway/blob/main/src/server/app.ts)

@@ -1,0 +1,27 @@
+---
+title: "Replays"
+description: "List, fetch, delete session replay frames."
+---
+
+{/* AUTO-GENERATED. Do not edit. Regenerate with `npm run docs:gen-rest` in the code repo. */}
+{/* Edit descriptions in scripts/gen-rest-docs.ts (RESOURCE_HELP + JSDoc above each route). */}
+
+Session replays are CDP screencast recordings captured during routed sessions. See [Session Replays](/replays) for the storage model.
+
+## Endpoints
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/v1/replays` |  |
+| `DELETE` | `/v1/replays/:id` |  |
+| `GET` | `/v1/replays/:id` |  |
+| `GET` | `/v1/replays/:id/manifest` |  |
+| `GET` | `/v1/replays/:id/targets/:targetId/export.mp4` |  |
+| `GET` | `/v1/replays/:id/targets/:targetId/frames/:frame` |  |
+| `GET` | `/v1/replays/:id/targets/:targetId/manifest` |  |
+| `POST` | `/v1/replays/ffmpeg/install` |  |
+| `GET` | `/v1/replays/ffmpeg/status` |  |
+
+## Source
+
+- [`src/server/rest/replays.ts`](https://github.com/browser-gateway/browser-gateway/blob/main/src/server/rest/replays.ts)

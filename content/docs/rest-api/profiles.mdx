@@ -1,0 +1,25 @@
+---
+title: "Profiles"
+description: "Create, export, import, delete stored browser profiles."
+---
+
+{/* AUTO-GENERATED. Do not edit. Regenerate with `npm run docs:gen-rest` in the code repo. */}
+{/* Edit descriptions in scripts/gen-rest-docs.ts (RESOURCE_HELP + JSDoc above each route). */}
+
+Manage profiles stored on disk. Profiles hold cookies + localStorage + IndexedDB, encrypted at rest with a key you control. See [Profiles](/profiles) for the conceptual model.
+
+## Endpoints
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/v1/profiles` |  |
+| `DELETE` | `/v1/profiles/:id` |  |
+| `GET` | `/v1/profiles/:id` |  |
+| `GET` | `/v1/profiles/:id/export` |  |
+| `POST` | `/v1/profiles/create` |  |
+| `POST` | `/v1/profiles/import` |  |
+| `POST` | `/v1/profiles/setup` | Enable-Profiles wizard. appends a profiles block to gateway.yml AND flips the live `config.profiles.enabled` so any subsequent writeConfig call (provider add/edit/delete) doesn't overwrite the new block. Restart is still required for the gateway to actually bootstrap profiles. |
+
+## Source
+
+- [`src/server/rest/profiles.ts`](https://github.com/browser-gateway/browser-gateway/blob/main/src/server/rest/profiles.ts)

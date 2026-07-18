@@ -1,0 +1,19 @@
+---
+title: "Status"
+description: "Aggregate gateway status (providers, sessions, pool)."
+---
+
+{/* AUTO-GENERATED. Do not edit. Regenerate with `npm run docs:gen-rest` in the code repo. */}
+{/* Edit descriptions in scripts/gen-rest-docs.ts (RESOURCE_HELP + JSDoc above each route). */}
+
+Reports every configured provider's health, session count, cooldown state, average latency, and the current pool metrics. The dashboard polls this every 5 seconds.
+
+## Endpoints
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/v1/status` |  |
+
+## Source
+
+- [`src/server/app.ts`](https://github.com/browser-gateway/browser-gateway/blob/main/src/server/app.ts)

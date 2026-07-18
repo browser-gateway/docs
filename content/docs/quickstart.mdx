@@ -1,0 +1,85 @@
+---
+title: Quickstart
+description: Install browser-gateway and route your first WebSocket connection in under 5 minutes.
+---
+
+## 1. Install
+
+```bash
+npm install -g browser-gateway
+```
+
+Or run without installing:
+
+```bash
+npx browser-gateway serve
+```
+
+Or via Docker:
+
+```bash
+docker run -d -p 9500:9500 ghcr.io/browser-gateway/server:latest
+```
+
+## 2. Point at a browser
+
+Save this as `gateway.yml`:
+
+```yaml
+version: 1
+gateway:
+  port: 9500
+providers:
+  my-chrome:
+    url: http://localhost:9222       # a Chrome running with --remote-debugging-port
+```
+
+Start Chrome for a moment to have something to route to:
+
+```bash
+docker run -d -p 9222:9222 --shm-size=2g chromedp/headless-shell:latest \
+  --no-sandbox --disable-dev-shm-usage
+```
+
+## 3. Start the gateway
+
+```bash
+browser-gateway serve --config gateway.yml
+```
+
+You should see:
+
+```
+▲ browser-gateway v0.3.6  ready in 2ms
+
+  ➜  Gateway:         http://localhost:9500
+  ➜  Dashboard:       http://localhost:9500/web
+  ➜  WS endpoint:     ws://localhost:9500/v1/connect
+```
+
+## 4. Connect a client
+
+Any CDP or Playwright client talks to the gateway the same way it talks to a browser directly.
+
+```ts
+import puppeteer from "puppeteer-core";
+
+const browser = await puppeteer.connect({
+  browserWSEndpoint: "ws://localhost:9500/v1/connect",
+});
+const page = await browser.newPage();
+await page.goto("https://example.com/");
+console.log(await page.title());
+await browser.disconnect();
+```
+
+## 5. Open the dashboard
+
+Visit `http://localhost:9500/web`, providers, sessions, profiles, replays, live view, config editor all live there.
+
+## Next
+
+- [Add more providers](/providers). Browserless, Steel, Cloudflare Browser Rendering, custom CDP
+- [Enable profiles](/profiles): reuse browser state across sessions
+- [Turn on replay](/replays): record every session for later playback
+- [REST API](/rest-api): screenshots, PDF, content extraction with no client code

@@ -1,0 +1,25 @@
+---
+title: "Providers"
+description: "CRUD for provider entries in gateway.yml."
+---
+
+{/* AUTO-GENERATED. Do not edit. Regenerate with `npm run docs:gen-rest` in the code repo. */}
+{/* Edit descriptions in scripts/gen-rest-docs.ts (RESOURCE_HELP + JSDoc above each route). */}
+
+Add, list, update, delete, and test browser provider entries. Adding via API writes to `gateway.yml` on disk atomically.
+
+## Endpoints
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/v1/providers` |  |
+| `POST` | `/v1/providers` |  |
+| `DELETE` | `/v1/providers/:id` |  |
+| `PUT` | `/v1/providers/:id` |  |
+| `GET` | `/v1/providers/:id/capabilities` |  |
+| `POST` | `/v1/providers/:id/capabilities/revalidate` |  |
+| `POST` | `/v1/providers/:id/test` |  |
+
+## Source
+
+- [`src/server/app.ts`](https://github.com/browser-gateway/browser-gateway/blob/main/src/server/app.ts)

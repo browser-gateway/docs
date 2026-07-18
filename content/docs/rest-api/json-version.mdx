@@ -1,0 +1,19 @@
+---
+title: "Chrome Compat"
+description: "Chrome-compatible /json/version endpoint."
+---
+
+{/* AUTO-GENERATED. Do not edit. Regenerate with `npm run docs:gen-rest` in the code repo. */}
+{/* Edit descriptions in scripts/gen-rest-docs.ts (RESOURCE_HELP + JSDoc above each route). */}
+
+Mimics Chrome's DevTools discovery endpoint so tools that expect `http://host:port/json/version` (Puppeteer defaults, chrome-launcher) work with the gateway as a drop-in.
+
+## Endpoints
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/json/version` |  |
+
+## Source
+
+- [`src/server/app.ts`](https://github.com/browser-gateway/browser-gateway/blob/main/src/server/app.ts)

@@ -1,0 +1,74 @@
+---
+title: "REST API Reference"
+description: "Every HTTP endpoint the gateway exposes, grouped by resource, auto-generated from source."
+---
+
+{/* AUTO-GENERATED. Do not edit. Regenerate with `npm run docs:gen-rest` in the code repo. */}
+
+The gateway exposes three categories of HTTP endpoints:
+
+- **Action endpoints** (`/v1/screenshot`, `/v1/content`, `/v1/scrape`): one-shot browser actions, no client code needed.
+- **Control endpoints** (`/v1/providers`, `/v1/config`, `/v1/profiles`, `/v1/replays`, `/v1/sessions`, `/v1/status`): manage the gateway itself.
+- **Compat + dashboard** (`/health`, `/json/version`, `/web/*`): Chrome-compat endpoints and the dashboard.
+
+All `/v1/*` endpoints require the `BG_TOKEN` header (or `?token=` query param) if `BG_TOKEN` is set. `/health` and `/json/version` are always public.
+
+## All endpoints
+
+| Method | Path | Resource |
+|---|---|---|
+| `GET` | [`/v1/auth/info`](/rest-api/auth) | Auth Info |
+| `GET` | [`/v1/config`](/rest-api/config) | Config |
+| `PUT` | [`/v1/config`](/rest-api/config) | Config |
+| `POST` | [`/v1/config/validate`](/rest-api/config) | Config |
+| `POST` | [`/v1/content`](/rest-api/content) | Content |
+| `GET` | [`/health`](/rest-api/health) | Health |
+| `GET` | [`/json/version`](/rest-api/json-version) | Chrome Compat |
+| `GET` | [`/v1/profiles`](/rest-api/profiles) | Profiles |
+| `DELETE` | [`/v1/profiles/:id`](/rest-api/profiles) | Profiles |
+| `GET` | [`/v1/profiles/:id`](/rest-api/profiles) | Profiles |
+| `GET` | [`/v1/profiles/:id/export`](/rest-api/profiles) | Profiles |
+| `POST` | [`/v1/profiles/create`](/rest-api/profiles) | Profiles |
+| `POST` | [`/v1/profiles/import`](/rest-api/profiles) | Profiles |
+| `POST` | [`/v1/profiles/setup`](/rest-api/profiles) | Profiles |
+| `GET` | [`/v1/providers`](/rest-api/providers) | Providers |
+| `POST` | [`/v1/providers`](/rest-api/providers) | Providers |
+| `DELETE` | [`/v1/providers/:id`](/rest-api/providers) | Providers |
+| `PUT` | [`/v1/providers/:id`](/rest-api/providers) | Providers |
+| `GET` | [`/v1/providers/:id/capabilities`](/rest-api/providers) | Providers |
+| `POST` | [`/v1/providers/:id/capabilities/revalidate`](/rest-api/providers) | Providers |
+| `POST` | [`/v1/providers/:id/test`](/rest-api/providers) | Providers |
+| `GET` | [`/v1/replays`](/rest-api/replays) | Replays |
+| `DELETE` | [`/v1/replays/:id`](/rest-api/replays) | Replays |
+| `GET` | [`/v1/replays/:id`](/rest-api/replays) | Replays |
+| `GET` | [`/v1/replays/:id/manifest`](/rest-api/replays) | Replays |
+| `GET` | [`/v1/replays/:id/targets/:targetId/export.mp4`](/rest-api/replays) | Replays |
+| `GET` | [`/v1/replays/:id/targets/:targetId/frames/:frame`](/rest-api/replays) | Replays |
+| `GET` | [`/v1/replays/:id/targets/:targetId/manifest`](/rest-api/replays) | Replays |
+| `POST` | [`/v1/replays/ffmpeg/install`](/rest-api/replays) | Replays |
+| `GET` | [`/v1/replays/ffmpeg/status`](/rest-api/replays) | Replays |
+| `POST` | [`/v1/scrape`](/rest-api/scrape) | Scrape |
+| `POST` | [`/v1/screenshot`](/rest-api/screenshot) | Screenshot |
+| `GET` | [`/v1/sessions`](/rest-api/sessions) | Sessions |
+| `GET` | [`/v1/status`](/rest-api/status) | Status |
+| `GET` | [`/web`](/rest-api/web) | Dashboard |
+| `GET` | [`/web/*`](/rest-api/web) | Dashboard |
+| `POST` | [`/web/auth`](/rest-api/web) | Dashboard |
+| `GET` | [`/web/auth/check`](/rest-api/web) | Dashboard |
+| `POST` | [`/web/logout`](/rest-api/web) | Dashboard |
+
+## By resource
+
+- [**Auth Info**](/rest-api/auth): Report whether the gateway requires an auth token.
+- [**Config**](/rest-api/config): Read, validate, and update gateway.yml over HTTP.
+- [**Content**](/rest-api/content): Extract page content (HTML, markdown, or text) from any URL.
+- [**Health**](/rest-api/health): Liveness probe. Always public, no auth required.
+- [**Chrome Compat**](/rest-api/json-version): Chrome-compatible /json/version endpoint.
+- [**Profiles**](/rest-api/profiles): Create, export, import, delete stored browser profiles.
+- [**Providers**](/rest-api/providers): CRUD for provider entries in gateway.yml.
+- [**Replays**](/rest-api/replays): List, fetch, delete session replay frames.
+- [**Scrape**](/rest-api/scrape): Structured data extraction from a page.
+- [**Screenshot**](/rest-api/screenshot): One-shot screenshot of any URL, no client code required.
+- [**Sessions**](/rest-api/sessions): Read-only view of active WebSocket sessions.
+- [**Status**](/rest-api/status): Aggregate gateway status (providers, sessions, pool).
+- [**Dashboard**](/rest-api/web): Dashboard static files + login endpoints.

@@ -1,0 +1,19 @@
+---
+title: "Auth Info"
+description: "Report whether the gateway requires an auth token."
+---
+
+{/* AUTO-GENERATED. Do not edit. Regenerate with `npm run docs:gen-rest` in the code repo. */}
+{/* Edit descriptions in scripts/gen-rest-docs.ts (RESOURCE_HELP + JSDoc above each route). */}
+
+Returns whether `BG_TOKEN` is set. Used by the dashboard to decide whether to show the login screen.
+
+## Endpoints
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/v1/auth/info` | Returns the configured BG_TOKEN only to dashboard callers that present the `bg_session` cookie. Bearer callers get `authEnabled: true` without the token. they already know it, and refusing to echo it limits the blast radius of any future API leak (proxy logs, accidental forwarding). |
+
+## Source
+
+- [`src/server/app.ts`](https://github.com/browser-gateway/browser-gateway/blob/main/src/server/app.ts)
