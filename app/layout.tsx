@@ -9,7 +9,7 @@ import { source } from "@/lib/source";
 const SITE_URL = "https://docs.browsergateway.com";
 const SITE_NAME = "browser-gateway docs";
 const DESCRIPTION =
-  "The control plane for browser fleets. One endpoint, any provider: failover, persistent profiles, session replay, REST API, MCP server, dashboard. OpenRouter for browsers.";
+  "OpenRouter for browsers. One endpoint, any provider: failover, persistent profiles, session replay, REST API, MCP server, dashboard.";
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
