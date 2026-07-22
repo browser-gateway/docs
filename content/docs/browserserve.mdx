@@ -16,7 +16,7 @@ Source and image:
 docker run --rm -p 9222:9222 \
   --shm-size=1g \
   --security-opt seccomp=seccomp.json \
-  ghcr.io/browser-gateway/browserserve:0.1.0
+  ghcr.io/browser-gateway/browserserve:0.1.1
 ```
 
 `seccomp.json` ships in the repository (`docker/seccomp.json`). It permits the three system calls Chromium's sandbox needs, so the browser runs with its sandbox on. Without it, set `chrome.noSandbox: true` in the config instead.
