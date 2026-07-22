@@ -1,0 +1,95 @@
+---
+title: "browserserve (Self-Hosted Browser)"
+description: "browserserve is a self-hosted browser server. One container runs isolated Chrome sessions over CDP. Run it standalone, or add it to the gateway as a provider."
+---
+
+browserserve is a self-hosted browser server from the same stack as the gateway. One container runs isolated Chrome sessions over CDP: a warm pool for instant starts, host-measured capacity, per-session resource caps, and zero cross-session state. It is a standalone product; it does not require the gateway.
+
+Source and image:
+
+- Repository: [github.com/browser-gateway/browserserve](https://github.com/browser-gateway/browserserve) (MIT or Apache-2.0)
+- Image: `ghcr.io/browser-gateway/browserserve` (multi-arch amd64/arm64, signed)
+
+## Quick start
+
+```bash
+docker run --rm -p 9222:9222 \
+  --shm-size=1g \
+  --security-opt seccomp=seccomp.json \
+  ghcr.io/browser-gateway/browserserve:0.1.0
+```
+
+`seccomp.json` ships in the repository (`docker/seccomp.json`). It permits the three system calls Chromium's sandbox needs, so the browser runs with its sandbox on. Without it, set `chrome.noSandbox: true` in the config instead.
+
+Connect with any CDP client. Every WebSocket connection gets its own freshly launched browser:
+
+```js
+// Puppeteer
+const browser = await puppeteer.connect({ browserWSEndpoint: "ws://localhost:9222" });
+
+// Playwright
+const browser = await chromium.connectOverCDP("http://localhost:9222");
+```
+
+On disconnect, the session's whole process tree is killed and its profile directory is deleted. Cookies, localStorage, and IndexedDB do not survive into the next session, because nothing is shared between sessions.
+
+## Isolation tiers
+
+browserserve detects what the host allows and reports it honestly:
+
+- On a Linux host with cgroup delegation, each session runs in its own cgroup with a kernel-enforced memory cap (`memory.max`) and a one-syscall tree kill (`cgroup.kill`).
+- Everywhere else, a portable tier applies: process-group kill plus a polled memory soft cap.
+
+`browserserve doctor` prints the active tier, and `GET /pressure` includes it at runtime. The isolation contract (fresh browser, fresh profile directory, wiped on disconnect) holds on every tier.
+
+## Configuration
+
+Configuration is a YAML file (`browserserve.yml` in the working directory, or `BROWSERSERVE_CONFIG=<path>`). Every field is optional. The most useful ones:
+
+```yaml
+pool:
+  minReady: 1              # browsers kept launched and ready ahead of demand
+  # maxSessions: 10        # hard ceiling; unset = derived from the host's real
+  #                        # memory, thread, and CPU limits at startup
+session:
+  memoryMaxMb: 2048        # per-session memory cap; kernel-enforced where possible
+chrome:
+  noSandbox: false         # set true only when the host cannot run the sandbox
+```
+
+When `maxSessions` is unset, browserserve measures the host at startup: the cgroup memory and PID limits, the CPU count, and the real footprint of a browser it launches. It derives a safe ceiling from those measurements and logs the result and which limit was the constraint.
+
+Environment variables: `PORT` (default 9222), `HOST`, `BROWSERSERVE_TOKEN` (enables token auth), `BROWSERSERVE_CONFIG`, `BROWSERSERVE_CHROME_PATH`, `BROWSERSERVE_DATA_DIR`.
+
+## Endpoints
+
+| Endpoint | Purpose |
+|---|---|
+| `WS /` | Connect a CDP session. One connection = one isolated browser. |
+| `GET /json/version` | CDP discovery. Points clients at the WebSocket endpoint. |
+| `GET /live` | Process liveness. |
+| `GET /ready` | The instance can serve a session now. |
+| `GET /pressure` | Load, capacity, and the active isolation tier. |
+
+## Using browserserve with the gateway
+
+Add it like any other provider. The gateway routes to it over the same WebSocket contract it uses for every provider:
+
+```yaml
+providers:
+  browserserve:
+    url: ws://your-host:9222
+    limits:
+      maxConcurrent: 8
+  cloud-provider:
+    url: <websocket-url-with-auth>
+    priority: 2
+```
+
+With token auth enabled on browserserve, bake the token into the URL: `ws://your-host:9222?token=<token>`.
+
+A common shape: browserserve as the primary provider on your own hardware, with a cloud provider at a lower priority for failover.
+
+## Benchmarks
+
+A same-host baseline comparison against Browserless and raw Chrome, with methodology and caveats, lives in the repository: [docs/BENCHMARKS.md](https://github.com/browser-gateway/browserserve/blob/main/docs/BENCHMARKS.md).
