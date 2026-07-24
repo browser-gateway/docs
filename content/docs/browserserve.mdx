@@ -90,6 +90,12 @@ With token auth enabled on browserserve, bake the token into the URL: `ws://your
 
 A common shape: browserserve as the primary provider on your own hardware, with a cloud provider at a lower priority for failover.
 
+## Full profiles
+
+browserserve is the only provider that carries a **complete** profile. Cookies and localStorage travel to any provider, but IndexedDB and service workers cannot move over the DevTools protocol, so no remote provider can carry them. browserserve moves them as files because it owns the browser's disk. Apps that keep their session in IndexedDB (Firebase, Supabase, and similar) fully persist only on browserserve.
+
+It also serves **every** profile from one provider. Because each session is a fresh, isolated browser, a single browserserve provider handles any number of profiles with no per-slot pinning and no crosstalk. See [Profiles](./profiles) for how loading, saving, and read-only sessions work.
+
 ## Benchmarks
 
 A same-host baseline comparison against Browserless and raw Chrome, with methodology and caveats, lives in the repository: [docs/BENCHMARKS.md](https://github.com/browser-gateway/browserserve/blob/main/docs/BENCHMARKS.md).

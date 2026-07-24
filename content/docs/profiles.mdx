@@ -14,9 +14,9 @@ Anything where you'd otherwise log in again every run:
 - Automated checkout testing, start from "already signed in" state
 - Multi-account workflows, one profile per account, no cross-contamination
 
-## How They Work. In One Paragraph
+## How It Works
 
-You connect to the gateway with `?profile=acme-prod` on the WebSocket URL. The first time you connect with that id, it's a normal session. When you disconnect, the gateway snapshots the browser's cookies and per-origin storage and writes them to disk, encrypted. Next time anyone connects with `?profile=acme-prod`, the gateway restores that snapshot before handing you the browser. You're already logged in.
+You connect with `?profile=acme-prod` on the WebSocket URL. Before you get the browser, the gateway **loads that profile's saved state into it**, so your first page is already signed in. When you disconnect, the gateway **saves the updated state back**, encrypted. That's the whole loop: load on connect, save on disconnect.
 
 ```ts
 import puppeteer from "puppeteer-core";
@@ -28,6 +28,19 @@ const page = await browser.newPage();
 await page.goto("https://your-app.example.com/dashboard"); // already authenticated
 await browser.disconnect();
 ```
+
+### What a profile contains depends on the provider
+
+- **Cookies and localStorage, everywhere.** These are the portable core. Every provider (Browserless, Steel, Browserbase, raw Chrome, any CDP endpoint) can carry them, and they round-trip between providers unchanged.
+- **IndexedDB and service workers, [browserserve](./browserserve) only.** These cannot be moved over the DevTools protocol at all, so no remote provider can carry them. [browserserve](./browserserve), the self-hosted runtime, moves them as files because it owns the browser's disk. Many apps (Firebase, Supabase, and similar) keep their session in IndexedDB, not cookies, those profiles only fully work on browserserve.
+
+So: a profile saved on any provider carries cookies + localStorage everywhere; a profile used on browserserve additionally carries IndexedDB + service workers. Nothing extra to configure; the same profile does more on browserserve.
+
+### One writer at a time (single-writer)
+
+A profile is **edited by one session at a time.** When a session is using `acme-prod`, another request for the same profile **waits** for it to finish (up to ~15 seconds) and then proceeds, it does not fail. Different profiles run fully in parallel, so run as many *different* profiles at once as you like.
+
+This keeps two sessions from overwriting each other's changes. It's enforced within a single gateway (even when that gateway routes to several browser instances). If you run **multiple gateways** against a shared profile store, don't drive the *same* profile from two of them at once for write workloads, cross-gateway locking isn't coordinated yet. For high-concurrency reads, use [read-only profiles](#read-only-profiles) instead.
 
 ## Quickstart. Enabling The Feature
 
@@ -51,7 +64,7 @@ profiles:
   filesystem:
     path: ./profiles            # resolved relative to $BG_DATA_DIR
   encryption:
-    keyEnv: BG_ENCRYPTION_KEY   # env var name (optional — auto file beats it absent)
+    keyEnv: BG_ENCRYPTION_KEY   # env var name (optional, auto file beats it absent)
 ```
 
 ```bash
@@ -68,9 +81,23 @@ Most operators don't need to set anything, backups of `$BG_DATA_DIR` include the
 
 Once enabled, any `?profile=<id>` connection auto-creates a profile on first disconnect.
 
-## One Profile Per Provider Slot
+## Serving Multiple Profiles
 
-Each provider slot in `gateway.yml` serves **one profile at a time**. You declare which profile a slot serves with the `profile:` field.
+There are two models, depending on the provider.
+
+### browserserve, one provider serves every profile (recommended)
+
+[browserserve](./browserserve), the self-hosted runtime, gives every connection its own fresh, isolated browser. So a **single** browserserve provider serves **any number of profiles** with no pinning and no crosstalk. Point the gateway at it and any `?profile=<id>` routes to it, it's auto-detected.
+
+```yaml
+providers:
+  runtime:
+    url: ws://browserserve:9222/   # serves every profile, no pin needed
+```
+
+### External providers, one profile per pinned slot
+
+External providers persist state on whatever browser they hand back, so two profiles sharing one slot would bleed into each other. Pin each slot to one profile with `profile:`, and add one slot per profile.
 
 ```yaml
 providers:
@@ -80,27 +107,20 @@ providers:
 
   provider-team-bravo:
     url: wss://provider.example.com?token=${TOKEN_B}
-    profile: team-bravo        # this slot serves only ?profile=team-bravo
+    profile: team-bravo
 ```
 
-The router enforces the pin. A `?profile=team-acme` request only routes to slots pinned to `team-acme`. A mismatched request returns `400 No provider is configured to serve profile 'X'`.
+The router enforces the boundary. A `?profile=team-acme` request routes only to a slot pinned to `team-acme` **or** to any browserserve provider. A request matching no eligible provider returns `400`.
 
-Why: profile state persists on whatever browser the provider gives us. Two profiles sharing one provider slot would bleed state into each other. Pinning makes the boundary explicit, one profile per slot, no crosstalk.
-
-**To serve N profiles, configure N provider slots.** They can point at the same underlying provider (different tokens or the same one), each slot is treated as its own routing target.
-
-**Unpinned provider slots** (no `profile:` field) only serve **stateless traffic** (connections with no `?profile=` query parameter). They never receive profile-bearing requests.
-
-**Startup validation**: if `profiles.enabled: true` and no provider slot has a `profile:` pin, the gateway refuses to start with a clear error. Enabling the feature without configuring a pinned slot is a misconfiguration, not a working default.
+**Unpinned external slots** (no `profile:` field) serve only stateless traffic (connections with no `?profile=`). **Startup validation:** with `profiles.enabled: true` and neither a browserserve provider nor a pinned slot, the gateway warns that no provider can serve a profile.
 
 ## What Gets Captured
 
 When the session ends, the gateway captures:
 
-- **All cookies** for every origin the session touched (`document.cookie` + HttpOnly cookies)
-- **`localStorage`** and **`sessionStorage`** for every origin
-- **`IndexedDB`** databases (with full record contents)
-- **Service worker registrations and Cache API entries** (where supported by the provider's CDP build)
+- **All cookies**, every origin, including `HttpOnly`, with all security attributes (`Secure`, `SameSite`, partitioning) preserved so a protected cookie is never silently downgraded. On every provider.
+- **`localStorage`**. On [browserserve](./browserserve), read directly from disk, so every origin is captured, including a site that sets no cookie. On a remote provider, the DevTools protocol has no way to list which origins hold `localStorage`, so capture covers the origins the gateway can discover: the ones that set a cookie, plus any already stored in the profile. A logged-in site sets a cookie, so its `localStorage` is captured everywhere; a cookieless origin's `localStorage` is captured on browserserve only.
+- **`IndexedDB`** (with full record contents) and **service worker registrations**, **[browserserve](./browserserve) only**. The DevTools protocol cannot move IndexedDB, so no remote provider can carry it; browserserve moves it as files.
 
 What's **NOT** captured:
 
@@ -115,10 +135,31 @@ What's **NOT** captured:
 |---|---|
 | First connect with `?profile=acme` | Routes to a slot pinned to `acme`. Normal blank session. Disconnect captures a new blob. |
 | Subsequent connect with `?profile=acme` | Gateway decrypts the blob and replays cookies + storage before you start. |
-| Concurrent connects with `?profile=acme` | The first acquires the lock; the second gets HTTP 409 with `LOCK_HELD`. One session per profile at a time. |
-| Concurrent connects with **different** profile ids | Route to their respective pinned slots. Run fully in parallel. No contention. |
+| Connect with `?profile=acme&readOnly=1` | Loads the profile but never saves it back. No lock, many read-only sessions can share it at once. See [read-only](#read-only-profiles). |
+| Concurrent connects with `?profile=acme` (read-write) | The first uses it; a second **waits** (up to ~15s) for it to finish, then proceeds. One writer at a time. |
+| Concurrent connects with **different** profile ids | Run fully in parallel. No contention. |
 | Connect with `?profile=` matching no pinned slot | HTTP 400. `No provider is configured to serve profile 'X'. Pin a provider slot with 'profile: X'.` |
 | Connect with no `?profile=` | Routes only to unpinned slots. No persistence. |
+
+## Read-Only Profiles
+
+For high-concurrency reads, scraping, testing, anything that only needs to *use* a signed-in state, not change it, add `&readOnly=1`:
+
+```ts
+const browser = await puppeteer.connect({
+  browserWSEndpoint:
+    "ws://localhost:9500/v1/connect?profile=acme-prod&readOnly=1&token=YOUR_BG_TOKEN",
+});
+```
+
+A read-only session:
+
+- **Loads the profile** exactly like a normal session (you're signed in).
+- **Never saves anything back.** Changes made during the session are discarded on disconnect.
+- **Takes no lock**, so an unlimited number of read-only sessions can share the *same* profile at once, across any number of machines or gateways, with no waiting and no conflicts.
+- **Is faster**, it skips the save step entirely.
+
+The pattern: build the profile once with a normal (read-write) session (log in), then fan out as many read-only sessions on it as you need. This is the way to run a logged-in profile at scale. It works on every provider, the concurrency and no-conflict guarantees hold everywhere, because nothing is ever written back.
 
 ## Security Model
 
@@ -156,11 +197,13 @@ What's **NOT** captured:
 
 ## Limitations & Edge Cases
 
-### One session per profile at a time
+### One writer per profile at a time
 
-The gateway acquires a per-profile lock when you connect. A second connection to the same `?profile=acme` while the first is active gets a clean HTTP 409 (`LOCK_HELD`). This is by design, concurrent writers would corrupt the blob.
+A read-write session takes a per-profile lock. A second connection to the same `?profile=acme` while the first is active **waits** for the lock to free (up to ~15 seconds) and then proceeds, it fails with `409` only if that wait is exceeded. This keeps concurrent writers from corrupting each other.
 
-Workaround: use a different id per concurrent runner (`acme-worker-1`, `acme-worker-2`, …) and accept that each gets its own state.
+To run the same profile from many sessions at once, use **[read-only](#read-only-profiles)** (`&readOnly=1`, no lock, unlimited sharing) or give each writer its own id (`acme-worker-1`, `acme-worker-2`, …).
+
+Cross-gateway note: the lock lives in the gateway, so it's per-gateway. One gateway (even routing to many browser instances) is safe. If you run **multiple gateways** against a shared profile store, don't write the *same* profile from two of them at once. On a genuine conflict it's last-write-wins (with one guard: an empty capture never overwrites a good profile). Read-only sidesteps this entirely.
 
 ### No renaming yet
 
@@ -230,7 +273,7 @@ The **Profiles** page in the dashboard at `http://localhost:9500/web/profiles/`:
 The id is case-sensitive. `acme-prod` and `Acme-Prod` are different profiles.
 
 **409 with `LOCK_HELD`.**
-Another session is using the profile. Wait for it to disconnect, or use a different id for the new session.
+Another session held the profile for longer than the ~15s wait window. For many concurrent sessions on one profile, use [read-only](#read-only-profiles) (`&readOnly=1`); for concurrent *writers*, give each its own id.
 
 **"Wrong encryption key" / decryption fails.**
 The `BG_ENCRYPTION_KEY` env var was changed. Either restore the old key or delete the affected blobs (they're unreadable without the original key).
@@ -247,4 +290,4 @@ The site uses session storage (which we DO capture) plus an auth cookie marked a
 - Profile rename via export-import in a single dashboard action
 - Optional compression (zstd) to shrink large blobs
 - Per-profile retention policies (auto-delete after N days idle)
-- Profile sharing, read-only multi-reader access for distributed workers
+- Coordinated (distributed) write-locking across multiple gateways
