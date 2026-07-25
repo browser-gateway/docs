@@ -33,6 +33,28 @@ providers:
     priority: 1
 ```
 
+### browserserve (self-hosted runtime)
+
+[browserserve](/browserserve) is a self-hosted browser server from the same stack: one container hands out isolated Chrome sessions with a warm pool, host-derived capacity, and an optional profile channel. It is the only self-host option that carries a full profile, including IndexedDB and service workers, across sessions.
+
+```bash
+docker run -d -p 9222:9222 --shm-size=1g \
+  --security-opt seccomp=docker/seccomp.json \
+  ghcr.io/browser-gateway/browserserve:0.1.2
+```
+
+Config:
+```yaml
+providers:
+  browserserve:
+    url: ws://your-host:9222
+    limits:
+      maxConcurrent: 8
+    priority: 1
+```
+
+The gateway auto-detects a browserserve provider and adopts its advertised capacity when `maxConcurrent` is left unset. See the [browserserve reference](/browserserve) for configuration, the profile channel, and isolation tiers.
+
 ### Self-hosted Playwright
 
 Run your own Playwright server:
