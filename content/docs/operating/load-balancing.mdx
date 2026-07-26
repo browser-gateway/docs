@@ -171,9 +171,9 @@ The strategy never overrides health checks or concurrency limits. An unhealthy o
 
 ## How Strategy Interacts with the Queue
 
-If the strategy tries every provider and they're ALL full or in cooldown, the connection enters the [request queue](./request-queue.md) (if enabled). The client waits until a slot opens up on any provider.
+If the strategy tries every provider and they're ALL full or in cooldown, the connection enters the [request queue](/operating/queue) (if enabled). The client waits until a slot opens up on any provider.
 
-See [Request Queue](./request-queue.md) for details.
+See [Request Queue](/operating/queue) for details.
 
 ## Providers with Same Priority
 

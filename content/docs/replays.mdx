@@ -29,7 +29,7 @@ replay:
 
 Restart the gateway. From the next session onward, recordings appear in the **Replays** tab of the dashboard.
 
-That's the whole configuration. The defaults pick PNG frames, 7-day retention, and a 500 MB per-session cap.
+That's the whole configuration. The defaults pick JPEG frames, 7-day retention, and a 500 MB per-session cap.
 
 ## Configuration Reference
 
@@ -41,8 +41,8 @@ replay:
   filesystem:
     path: ./replays                # resolved under $BG_DATA_DIR
   capture:
-    format: png                    # png (lossless, fast) or jpeg (smaller, slower CPU)
-    quality: 80                    # 1-100, only used when format=jpeg
+    format: jpeg                   # jpeg (smaller, default) or png (lossless, larger)
+    quality: 70                    # 1-100, only used when format=jpeg
     everyNthFrame: 1               # 1 = every visual change; bump to skip frames
 ```
 

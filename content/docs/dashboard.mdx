@@ -1,6 +1,6 @@
 ---
 title: "Web Dashboard"
-description: "browser-gateway includes a built-in web dashboard for monitoring and managing your gateway. No extra tools needed, it's served from the same port as the gatewa"
+description: "browser-gateway includes a built-in web dashboard for providers, sessions, profiles, replays, logs, webhooks, and config, served from the same port as the gateway."
 ---
 
 browser-gateway includes a built-in web dashboard for monitoring and managing your gateway. No extra tools needed, it's served from the same port as the gateway itself.
@@ -12,8 +12,12 @@ http://localhost:9500/web
 ## What You Can Do From the Dashboard
 
 - See which providers are healthy and which are down
-- Monitor active browser sessions in real-time
+- Monitor active browser sessions in real time
 - Add, edit, delete, and test providers without touching config files
+- Manage saved profiles and browse session replays
+- Try the REST API and watch a live browser view from the browser
+- Add, edit, and test webhooks
+- Follow the gateway's logs without terminal access
 - Edit your `gateway.yml` with syntax highlighting and validation
 - Copy the WebSocket connection URL for your code
 
@@ -21,7 +25,7 @@ Everything updates automatically every 3-5 seconds.
 
 ## Pages
 
-The dashboard has 5 pages, accessible from the sidebar.
+The dashboard has 10 pages, accessible from the sidebar: Overview, Providers, Sessions, API, Playground, Profiles, Replays, Logs, Webhooks, and Config.
 
 ### Overview
 
@@ -90,6 +94,22 @@ This page is read-only, you're observing active connections, not managing them. 
 
 When no sessions are active, it shows "No active sessions."
 
+### API
+
+The REST API reference and try-it surface. Every REST endpoint (screenshot, PDF, page content, and the rest) is listed with its parameters and a request you can run against your own providers from the browser. See [REST API](/rest-api) for the full reference.
+
+### Playground
+
+A live view of a browser session: navigate with back, forward, and reload, and watch the page render in real time. Useful for confirming a provider works and for debugging what a session actually saw.
+
+### Profiles
+
+Manage saved browser profiles: a logged-in session captured once and replayed into later sessions. Copy a profile's connect URL (including a read-only variant), see what each profile stores, and delete profiles you no longer need. See [Profiles](/profiles).
+
+### Replays
+
+Browse and play back recorded sessions frame by frame. Retention and a per-session size cap are configurable. See [Replays](/replays).
+
 ### Config
 
 A full YAML editor for your `gateway.yml` file.
@@ -106,7 +126,11 @@ The editor shows the file path where the config is stored. Validation feedback a
 
 ### Logs
 
-Coming in a future update. For now, check the terminal where you ran `browser-gateway serve`, the gateway outputs structured JSON logs there.
+A live view of the gateway's structured logs, streamed into the dashboard so you do not need terminal access. Follow events as they happen: session starts and ends, provider health changes, and failovers.
+
+### Webhooks
+
+Add, edit, test, and delete webhooks, and choose which events each one receives (session started and ended, provider up and down, and more). See [Webhooks](/operating/webhooks).
 
 ## Authentication
 

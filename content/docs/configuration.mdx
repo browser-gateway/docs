@@ -115,18 +115,18 @@ Providers with the same priority are tried in config order.
 weight: 3    # For weighted strategy only. Higher = more traffic. Default: 1.
 ```
 
-Weights only matter when using the `weighted` strategy. A provider with `weight: 3` gets 3x more traffic than one with `weight: 1`. See [Load Balancing](./load-balancing.md#weighted) for detailed examples.
+Weights only matter when using the `weighted` strategy. A provider with `weight: 3` gets 3x more traffic than one with `weight: 1`. See [Load Balancing](/operating/load-balancing#weighted) for detailed examples.
 
 ## Deep Dives
 
 Each major feature has its own guide with real-world examples:
 
-- **[Load Balancing](./load-balancing.md)** - All 5 strategies explained with when to use each
-- **[Failover](./failover.md)** - How automatic failover works, cooldown system
-- **[Request Queue](./request-queue.md)** - What happens when all providers are busy
-- **[Webhooks](./webhooks.md)** - Get notifications when providers go down or recover
-- **[Session Lifecycle](./session-lifecycle.md)** - What happens during connect and disconnect
-- **[Graceful Shutdown](./cli.md#graceful-shutdown)** - How the gateway shuts down cleanly
+- **[Load Balancing](/operating/load-balancing)** - All 5 strategies explained with when to use each
+- **[Failover](/operating/failover)** - How automatic failover works, cooldown system
+- **[Request Queue](/operating/queue)** - What happens when all providers are busy
+- **[Webhooks](/operating/webhooks)** - Get notifications when providers go down or recover
+- **[Session Lifecycle](/sessions)** - What happens during connect and disconnect
+- **[Graceful Shutdown](/cli#graceful-shutdown)** - How the gateway shuts down cleanly
 
 ## Environment Variable Interpolation
 

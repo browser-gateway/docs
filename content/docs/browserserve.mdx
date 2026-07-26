@@ -16,7 +16,7 @@ Source and image:
 docker run --rm -p 9222:9222 \
   --shm-size=1g \
   --security-opt seccomp=seccomp.json \
-  ghcr.io/browser-gateway/browserserve:0.1.2
+  ghcr.io/browser-gateway/browserserve:latest
 ```
 
 `seccomp.json` ships in the repository (`docker/seccomp.json`). It permits the three system calls Chromium's sandbox needs, so the browser runs with its sandbox on. Without it, set `chrome.noSandbox: true` in the config instead.
@@ -83,13 +83,19 @@ When `pool.maxSessions` is unset, browserserve measures the host at startup and 
 
 The PID/thread limit is easy to miss: on a container with a low `pids.max`, the real ceiling can be a handful of browsers even with plenty of free memory, because each Chrome spawns dozens of threads. If sessions start returning 503 well before memory is exhausted, check `capacitySource` in `/pressure`; it will read `pids`.
 
+### Startup and scale-to-zero
+
+The server binds its port and answers `GET /json/version` in well under a second, then builds its warm pool in the background. It never blocks startup on a browser launch, so it comes up cleanly even on a slow or constrained host such as a managed platform.
+
+Set `pool.minReady: 0` for scale-to-zero: no browser runs while the instance is idle, and one launches on demand at the first connection. This trades a higher first-request latency for near-zero idle browser cost, which suits pay-as-you-go hosts. The default is `1`, which keeps one browser warm for instant first responses.
+
 ## Configuration
 
 Configuration is a YAML file (`browserserve.yml` in the working directory, or `BROWSERSERVE_CONFIG=<path>`). Every field is optional. Unknown keys are rejected, so a typo fails fast at startup. The most useful keys:
 
 | Key | Default | Meaning |
 |---|---|---|
-| `pool.minReady` | `1` | Browsers kept launched and ready ahead of demand. |
+| `pool.minReady` | `1` | Browsers kept launched and ready ahead of demand. Set to `0` for scale-to-zero (no idle browsers; launch on demand). |
 | `pool.maxSessions` | unset (auto) | Hard ceiling of concurrent browsers. Left unset, it is derived from the host. |
 | `pool.maxQueue` | `10` | Clients allowed to wait for a slot before rejection. |
 | `pool.queueTimeoutMs` | `30000` | How long a queued client waits before a 503. |
