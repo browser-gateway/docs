@@ -77,9 +77,29 @@ await browser.disconnect();
 
 Visit `http://localhost:9500/web`, providers, sessions, profiles, replays, live view, config editor all live there.
 
+## Verify
+
+```bash
+curl http://localhost:9500/health        # gateway is up (always public)
+curl http://localhost:9500/v1/status     # provider health and active sessions
+browser-gateway check                    # test provider connectivity
+```
+
+## Add authentication
+
+Set `BG_TOKEN` (an environment variable, or a `.env` file that is auto-loaded on startup) to require a token on every connection:
+
+```bash
+BG_TOKEN=my-secret-token browser-gateway serve
+```
+
+WebSocket clients then pass `?token=my-secret-token`, REST clients send an `Authorization: Bearer my-secret-token` header, and the dashboard shows a login form. `/health` stays public.
+
 ## Next
 
-- [Add more providers](/providers). Browserless, Steel, Cloudflare Browser Rendering, custom CDP
+- [Add more providers](/providers): Browserless, Steel, Cloudflare Browser Rendering, custom CDP
 - [Enable profiles](/profiles): reuse browser state across sessions
 - [Turn on replay](/replays): record every session for later playback
 - [REST API](/rest-api): screenshots, PDF, content extraction with no client code
+- [Configuration reference](/configuration): every option explained
+- [Failover](/operating/failover) and [load balancing](/operating/load-balancing): routing across providers
