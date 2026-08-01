@@ -89,6 +89,18 @@ The server binds its port and answers `GET /json/version` in well under a second
 
 Set `pool.minReady: 0` for scale-to-zero: no browser runs while the instance is idle, and one launches on demand at the first connection. This trades a higher first-request latency for near-zero idle browser cost, which suits pay-as-you-go hosts. The default is `1`, which keeps one browser warm for instant first responses.
 
+### Idle sessions and zombie clients
+
+`session.idleTimeoutMs` kills a session whose client has stopped sending CDP messages for the configured number of milliseconds. This protects against zombie sessions where the client's TCP is still open but the client itself has hung or been abandoned. Set it via the config file or the `BROWSERSERVE_IDLE_TIMEOUT_MS` env var.
+
+The default is `0` (disabled) to preserve behaviour for legitimate long-running sessions such as agent workflows, live debugging, and replays. A common starting value for operators who want protection: `300000` (5 min).
+
+Only client outbound traffic resets the clock. Browser events, screencast frames, and log output do not, because they do not prove the client is still alive.
+
+When the timer fires, the client's WebSocket receives a `1013` close with reason `idle-timeout after {N}ms`. Puppeteer and Playwright surface this as a clear error naming the idle timeout, so the operator knows immediately what happened. The browser process is killed and its slot returns to the pool.
+
+The active value is reported on `GET /pressure` as `idleTimeoutMs`, so an operator can verify at runtime that their setting loaded.
+
 ## Configuration
 
 Configuration is a YAML file (`browserserve.yml` in the working directory, or `BROWSERSERVE_CONFIG=<path>`). Every field is optional. Unknown keys are rejected, so a typo fails fast at startup. The most useful keys:
@@ -100,7 +112,7 @@ Configuration is a YAML file (`browserserve.yml` in the working directory, or `B
 | `pool.maxQueue` | `10` | Clients allowed to wait for a slot before rejection. |
 | `pool.queueTimeoutMs` | `30000` | How long a queued client waits before a 503. |
 | `session.memoryMaxMb` | `2048` | Per-session memory cap (kernel-enforced on a delegated host, RSS soft cap otherwise; `0` = uncapped). |
-| `session.maxSessionMs` | `0` | Maximum session lifetime; `0` = unlimited. |
+| `session.idleTimeoutMs` | `0` | Kill a session whose client has not sent a CDP message in this many ms; `0` = disabled. Recommended starting value: `300000` (5 min). |
 | `session.killGraceMs` | `5000` | SIGTERM-to-SIGKILL grace during teardown. |
 | `pressure.maxCpuPercent` | `95` | Reject new sessions above this host CPU usage. |
 | `pressure.maxMemoryPercent` | `95` | Reject new sessions above this host memory usage. |
@@ -111,7 +123,7 @@ Configuration is a YAML file (`browserserve.yml` in the working directory, or `B
 
 The repository's `browserserve.example.yml` lists every key with inline notes.
 
-Environment variables: `PORT` (default 9222), `HOST` (default `0.0.0.0`), `BROWSERSERVE_TOKEN` (enables token auth), `BROWSERSERVE_CONFIG`, `BROWSERSERVE_CHROME_PATH`, `BROWSERSERVE_DATA_DIR`.
+Environment variables: `PORT` (default 9222), `HOST` (default `0.0.0.0`), `BROWSERSERVE_TOKEN` (enables token auth), `BROWSERSERVE_CONFIG`, `BROWSERSERVE_CHROME_PATH`, `BROWSERSERVE_DATA_DIR`, `BROWSERSERVE_MIN_READY` (mirrors `pool.minReady`), `BROWSERSERVE_IDLE_TIMEOUT_MS` (mirrors `session.idleTimeoutMs`). Env vars override the YAML file.
 
 ## Endpoints
 
