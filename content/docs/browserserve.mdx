@@ -123,7 +123,39 @@ Configuration is a YAML file (`browserserve.yml` in the working directory, or `B
 
 The repository's `browserserve.example.yml` lists every key with inline notes.
 
-Environment variables: `PORT` (default 9222), `HOST` (default `0.0.0.0`), `BROWSERSERVE_TOKEN` (enables token auth), `BROWSERSERVE_CONFIG`, `BROWSERSERVE_CHROME_PATH`, `BROWSERSERVE_DATA_DIR`, `BROWSERSERVE_MIN_READY` (mirrors `pool.minReady`), `BROWSERSERVE_MAX_SESSIONS` (mirrors `pool.maxSessions`), `BROWSERSERVE_MAX_QUEUE` (mirrors `pool.maxQueue`), `BROWSERSERVE_QUEUE_TIMEOUT_MS` (mirrors `pool.queueTimeoutMs`), `BROWSERSERVE_IDLE_TIMEOUT_MS` (mirrors `session.idleTimeoutMs`), `BROWSERSERVE_MEMORY_MAX_MB` (mirrors `session.memoryMaxMb`), `BROWSERSERVE_NO_SANDBOX` (mirrors `chrome.noSandbox`), `BROWSERSERVE_REQUIRE_SANDBOX` (mirrors `chrome.requireSandbox`). Env vars override the YAML file. Every tuning knob has an env var equivalent, so managed-platform deploys never need a mounted YAML.
+### Environment variables
+
+Every tuning knob has an environment-variable equivalent, so container and serverless deploys (Railway, Fly, Render, Cloud Run, K8s) never need a mounted YAML. Env vars override the YAML file.
+
+| Variable | YAML equivalent | Meaning |
+|---|---|---|
+| `PORT` | `serve.port` | HTTP port. Default `9222`. |
+| `HOST` | `serve.host` | Bind address. Default `0.0.0.0`. |
+| `BROWSERSERVE_TOKEN` | `serve.token` | Bearer token for auth. Unset disables auth. |
+| `BROWSERSERVE_CONFIG` | n/a | Path to the YAML config file. |
+| `BROWSERSERVE_CHROME_PATH` | `chrome.executablePath` | Chromium binary. Auto-detected when unset. |
+| `BROWSERSERVE_DATA_DIR` | `dataDir` | Where per-session state lives. |
+| `BROWSERSERVE_MIN_READY` | `pool.minReady` | Warm browsers to keep. `0` for scale-to-zero. |
+| `BROWSERSERVE_MAX_SESSIONS` | `pool.maxSessions` | Concurrent-session ceiling. Must be ≥ 1. |
+| `BROWSERSERVE_MAX_QUEUE` | `pool.maxQueue` | Queued clients before rejection. |
+| `BROWSERSERVE_QUEUE_TIMEOUT_MS` | `pool.queueTimeoutMs` | Milliseconds a queued client waits before 503. |
+| `BROWSERSERVE_IDLE_TIMEOUT_MS` | `session.idleTimeoutMs` | Kill client-idle sessions after N ms. `0` disables. |
+| `BROWSERSERVE_MEMORY_MAX_MB` | `session.memoryMaxMb` | Per-session memory cap in MiB. `0` disables. |
+| `BROWSERSERVE_NO_SANDBOX` | `chrome.noSandbox` | Opt out of the Chromium sandbox. Boolean. |
+| `BROWSERSERVE_REQUIRE_SANDBOX` | `chrome.requireSandbox` | Refuse to fall back if the host blocks the sandbox. |
+
+Setting both `noSandbox` and `requireSandbox` is a startup error.
+
+### Sizing and capacity
+
+browserserve auto-derives `pool.maxSessions` from the host's real limits (cgroup memory / pids / cpus) and a measured browser footprint at boot. On an 8 GB, 8 vCPU container it typically resolves to 12-16 sessions, bound by CPU or PIDs. Override via `pool.maxSessions` or `BROWSERSERVE_MAX_SESSIONS`.
+
+The per-session memory cap (`session.memoryMaxMb`) is disabled by default. A Chrome instance including its renderer, GPU, network, and storage processes typically uses 1-2 GB across the process tree even for a single tab, so a cap that seems generous can be tight in practice. Recommended pattern:
+
+- Leave `memoryMaxMb: 0` (default). The container's own memory limit (Docker `--memory`, K8s `resources.limits.memory`, Railway service memory) is the OOM boundary.
+- If you want a per-session ceiling for fair-share reasons, set it via the sizing math: `container_memory_mb / maxSessions × 0.8`. On an 8 GB container with 16 max sessions, that's ~400 MB per session, which is too tight for anything but a single-tab scrape. On 4 max sessions it's 1.6 GB, which fits most workloads.
+
+Screencast and playground use cases push memory harder than headless scrape. The compositor and paint pipeline stay hot; size accordingly.
 
 ## Endpoints
 
