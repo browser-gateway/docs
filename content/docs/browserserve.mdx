@@ -111,7 +111,7 @@ Configuration is a YAML file (`browserserve.yml` in the working directory, or `B
 | `pool.maxSessions` | unset (auto) | Hard ceiling of concurrent browsers. Left unset, it is derived from the host. |
 | `pool.maxQueue` | `10` | Clients allowed to wait for a slot before rejection. |
 | `pool.queueTimeoutMs` | `30000` | How long a queued client waits before a 503. |
-| `session.memoryMaxMb` | `2048` | Per-session memory cap (kernel-enforced on a delegated host, RSS soft cap otherwise; `0` = uncapped). |
+| `session.memoryMaxMb` | `0` | Per-session memory cap in MiB (kernel-enforced on a delegated host, RSS soft cap otherwise; `0` = disabled, let the container's own memory limit be the OOM boundary). Recommended sizing when enabled: `container_memory_mb / maxSessions × 0.8`. |
 | `session.idleTimeoutMs` | `0` | Kill a session whose client has not sent a CDP message in this many ms; `0` = disabled. Recommended starting value: `300000` (5 min). |
 | `session.killGraceMs` | `5000` | SIGTERM-to-SIGKILL grace during teardown. |
 | `pressure.maxCpuPercent` | `95` | Reject new sessions above this host CPU usage. |
@@ -123,7 +123,7 @@ Configuration is a YAML file (`browserserve.yml` in the working directory, or `B
 
 The repository's `browserserve.example.yml` lists every key with inline notes.
 
-Environment variables: `PORT` (default 9222), `HOST` (default `0.0.0.0`), `BROWSERSERVE_TOKEN` (enables token auth), `BROWSERSERVE_CONFIG`, `BROWSERSERVE_CHROME_PATH`, `BROWSERSERVE_DATA_DIR`, `BROWSERSERVE_MIN_READY` (mirrors `pool.minReady`), `BROWSERSERVE_IDLE_TIMEOUT_MS` (mirrors `session.idleTimeoutMs`). Env vars override the YAML file.
+Environment variables: `PORT` (default 9222), `HOST` (default `0.0.0.0`), `BROWSERSERVE_TOKEN` (enables token auth), `BROWSERSERVE_CONFIG`, `BROWSERSERVE_CHROME_PATH`, `BROWSERSERVE_DATA_DIR`, `BROWSERSERVE_MIN_READY` (mirrors `pool.minReady`), `BROWSERSERVE_MAX_SESSIONS` (mirrors `pool.maxSessions`), `BROWSERSERVE_MAX_QUEUE` (mirrors `pool.maxQueue`), `BROWSERSERVE_QUEUE_TIMEOUT_MS` (mirrors `pool.queueTimeoutMs`), `BROWSERSERVE_IDLE_TIMEOUT_MS` (mirrors `session.idleTimeoutMs`), `BROWSERSERVE_MEMORY_MAX_MB` (mirrors `session.memoryMaxMb`), `BROWSERSERVE_NO_SANDBOX` (mirrors `chrome.noSandbox`), `BROWSERSERVE_REQUIRE_SANDBOX` (mirrors `chrome.requireSandbox`). Env vars override the YAML file. Every tuning knob has an env var equivalent, so managed-platform deploys never need a mounted YAML.
 
 ## Endpoints
 
