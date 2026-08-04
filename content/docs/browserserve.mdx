@@ -13,13 +13,10 @@ Source and image:
 ## Quick start
 
 ```bash
-docker run --rm -p 9222:9222 \
-  --shm-size=1g \
-  --security-opt seccomp=seccomp.json \
-  ghcr.io/browser-gateway/browserserve:latest
+docker run --rm -p 9222:9222 --shm-size=1g ghcr.io/browser-gateway/browserserve:latest
 ```
 
-`seccomp.json` ships in the repository (`docker/seccomp.json`). It permits the three system calls Chromium's sandbox needs, so the browser runs with its sandbox on. Without it, set `chrome.noSandbox: true` in the config instead.
+The image runs out of the box. Chromium's sandbox stays on where the host allows it; where the host blocks the system calls it needs (Docker's default profile, and most managed platforms), browserserve logs a warning and falls back to `--no-sandbox` automatically, so the browser still runs. Session isolation does not depend on the sandbox, so the fallback is safe. To keep the sandbox on, or to require it, see [Security](#security).
 
 Connect with any CDP client. Every WebSocket connection gets its own freshly launched browser:
 
@@ -63,7 +60,7 @@ Add `?readOnly=1` to the connect URL to seed a profile without capturing it back
 
 localStorage is read from the browser's on-disk store after it exits, so every origin is captured, including ones that set no cookie. Cookies are restored through a drop-only sanitizer: it keeps every security attribute (`Secure`, `HttpOnly`, `SameSite`, partitioning) exactly, and drops any cookie it cannot reproduce safely rather than weakening it.
 
-**Current limitations, being tightened before a 1.0.** IndexedDB and service workers are browserserve-native, so that layer does not transfer to a different provider. Service-worker restore fidelity is not yet independently measured. Importing a profile captured on a different Chromium build is untested. Cookies with an opaque partition key (CHIPS) are dropped. Profiles are proven on the portable isolation tier; the kernel-cgroup tier together with profiles has not yet been validated.
+**Current limitations, being tightened before a 1.0.** IndexedDB and service workers are browserserve-native, so that layer does not transfer to a different provider. Service-worker restore fidelity is not yet independently measured. Importing a profile captured on a different Chromium build is untested. Cookies with an opaque partition key (CHIPS) are dropped. Profiles are proven on the portable isolation tier; the kernel-cgroup tier together with profiles has been validated in a Docker Desktop environment, with broad production validation ongoing.
 
 If you run browserserve behind the gateway, the gateway manages profiles for you (encryption, locking, a dashboard, and a REST API). See [Profiles](./profiles) for that workflow. The channel above is the standalone interface, for using browserserve on its own.
 
@@ -116,7 +113,8 @@ Configuration is a YAML file (`browserserve.yml` in the working directory, or `B
 | `session.killGraceMs` | `5000` | SIGTERM-to-SIGKILL grace during teardown. |
 | `pressure.maxCpuPercent` | `95` | Reject new sessions above this host CPU usage. |
 | `pressure.maxMemoryPercent` | `95` | Reject new sessions above this host memory usage. |
-| `chrome.noSandbox` | `false` | Opt out of the Chromium sandbox. |
+| `chrome.noSandbox` | `false` | Start without the Chromium sandbox. |
+| `chrome.requireSandbox` | `false` | Refuse to fall back to `--no-sandbox` if the host blocks the sandbox; sessions fail to start instead. For untrusted content. |
 | `chrome.extraFlags` | `[]` | Extra Chromium flags, appended after the built-in set. |
 | `externalAddress` | Host header | Public address advertised in `webSocketDebuggerUrl`; set this behind a proxy or load balancer. |
 | `dataDir` | `.browserserve` | Where per-session state lives. |
@@ -183,7 +181,7 @@ All three accept `--config <path>`. Config resolves in order: `--config`, then `
 
 ## Security
 
-- **Fail closed.** If the Chromium sandbox cannot start, sessions refuse to launch rather than silently downgrading. Run with the shipped `docker/seccomp.json` to keep the sandbox on, or set `chrome.noSandbox: true` to opt out explicitly.
+- **Sandbox with automatic fallback.** Chromium's sandbox stays on where the host allows it. Where the host blocks the system calls it needs (Docker's default profile, Railway, Cloud Run, most managed platforms), browserserve logs a warning and falls back to `--no-sandbox` so the deploy still works. Isolation between sessions is unaffected, because it comes from the fresh per-session profile directory, not the sandbox. To keep the sandbox on in Docker, run with the shipped profile: `--security-opt seccomp=docker/seccomp.json`. To require the sandbox and refuse the fallback, for untrusted content, set `chrome.requireSandbox: true`; sessions then fail to start on a host that blocks the sandbox rather than downgrading. To skip the sandbox explicitly, set `chrome.noSandbox: true`.
 - **Non-root.** The server does all real work as an unprivileged user (uid 999). It starts as root only to self-delegate a per-session cgroup slice when the host allows it, then drops privileges.
 - **Authenticated surface.** With `BROWSERSERVE_TOKEN` set, the CDP WebSocket and the profile channel require the token; the health endpoints stay open.
 

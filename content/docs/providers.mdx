@@ -38,9 +38,7 @@ providers:
 [browserserve](/browserserve) is a self-hosted browser server from the same stack: one container hands out isolated Chrome sessions with a warm pool, host-derived capacity, and an optional profile channel. It is the only self-host option that carries a full profile, including IndexedDB and service workers, across sessions.
 
 ```bash
-docker run -d -p 9222:9222 --shm-size=1g \
-  --security-opt seccomp=docker/seccomp.json \
-  ghcr.io/browser-gateway/browserserve:latest
+docker run -d -p 9222:9222 --shm-size=1g ghcr.io/browser-gateway/browserserve:latest
 ```
 
 Config:
