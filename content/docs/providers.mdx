@@ -143,8 +143,29 @@ providers:
 
 The gateway tries them in priority order. If the primary is full or down, traffic routes to the next available provider automatically.
 
+## Custom Headers
+
+Some providers require an `Authorization: Bearer <key>` header on the WebSocket upgrade instead of a URL query token. Configure custom headers per provider:
+
+```yaml
+providers:
+  cloud-bearer:
+    url: wss://provider.example.com/cdp
+    headers:
+      Authorization: Bearer ${API_KEY}
+      X-Client: browser-gateway
+```
+
+Headers are sent on the outbound WebSocket handshake to the upstream. Values interpolate from environment variables. Limits: 20 headers max, key up to 80 chars, value up to 4 KB. See [Configuration → Custom headers](/configuration#custom-headers) for merge order.
+
+## Profiles And Providers
+
+Whether a provider can safely carry a profile depends on how the underlying browser is isolated between sessions. The self-hosted runtime gives every session a fresh isolated Chrome and can serve any profile with no pinning. External CDP providers must pin one profile per slot with `profile:`. `multiProfile: true` on external providers is rejected at add-time.
+
+See [Profiles → Provider Isolation](/profiles#provider-isolation) for the full matrix and the automatic residue detection that catches misconfigured or misbehaving providers.
+
 ## Tips
 
-- **Auth goes in the URL** - Most providers use query params for auth (`?token=xxx`, `?apiKey=xxx`). Put these directly in the URL. Use `${ENV_VAR}` references for secrets.
-- **Set realistic limits** - Check your provider's actual concurrency limits and set `maxConcurrent` accordingly. The gateway enforces these locally to avoid hitting provider rate limits.
-- **Chrome CDP needs the full path** - Chrome's CDP URL includes a UUID that changes on restart. You'll need to update the config or fetch it dynamically.
+- **Auth goes in the URL or in headers**. Query params (`?token=xxx`) work for most providers. Use `headers:` for `Authorization: Bearer` schemes. Always reference secrets via `${ENV_VAR}`.
+- **Set realistic limits**. Check the provider's actual concurrency limit and set `maxConcurrent` accordingly. The gateway enforces these locally to avoid hitting provider rate limits.
+- **Chrome CDP needs the full path**. Chrome's CDP URL includes a UUID that changes on restart. Point at `http://host:9222` and the gateway auto-discovers the current WebSocket path via `/json/version`.

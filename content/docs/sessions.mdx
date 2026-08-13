@@ -71,6 +71,19 @@ The gateway is protocol-agnostic. It forwards raw bytes without understanding wh
 
 This is the same model used by reverse proxies like nginx and HAProxy - they manage TCP/HTTP connections, not application sessions.
 
+## Connect URL Parameters
+
+Every parameter is optional. Combine as needed.
+
+| Parameter | Purpose |
+|---|---|
+| `token=<BG_TOKEN>` | Auth when `BG_TOKEN` is set. Alternative to `Authorization: Bearer`. |
+| `provider=<id>` | Pin the request to one provider slot. Fails if that slot is unhealthy or full. |
+| `profile=<id>` | Load a saved profile into the session. Default is write-back. See [Profiles](/profiles). |
+| `readOnly=1` | Combined with `profile=`, load the profile but never save changes back. Bypasses provider eligibility because nothing is written. |
+| `session_record=true` | Record the session as a replay. Requires `replay.enabled: true` in `gateway.yml`. See [Session Replays](/replays). |
+| `sessionId=<id>` | Reconnect to a previous session. Routes back to the same provider if the reconnect timeout hasn't elapsed. See [Session Reconnection](#session-reconnection). |
+
 ## Connection States in the Gateway
 
 You can check active sessions at any time:

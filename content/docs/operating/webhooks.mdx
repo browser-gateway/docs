@@ -11,7 +11,12 @@ You're running browser-gateway in production. A provider goes down at 3am. Witho
 
 ## Configuration
 
-Add a `webhooks` section to your `gateway.yml`:
+Two ways to manage webhooks:
+
+- **Dashboard** at `/web/webhooks`, add, edit, test, and delete webhooks with a form. Preferred for day-to-day changes because updates take effect without a restart.
+- **REST API** under `/v1/webhooks`, same operations for scripted setups. See the [Webhooks REST reference](/rest-api/webhooks).
+
+For static configs, a `webhooks` section in `gateway.yml` still works:
 
 ```yaml
 webhooks:
@@ -86,6 +91,27 @@ Every webhook receives a JSON POST body with this structure:
 | `status` | `"firing"` for problems, `"resolved"` for recoveries |
 | `source` | Always `"browser-gateway"` |
 | `data` | Event-specific details (provider ID, reason, etc.) |
+
+## Signing
+
+Every webhook has a per-webhook secret used to sign the request body with HMAC-SHA256. The signature is sent as an `X-BG-Signature` header:
+
+```
+X-BG-Signature: sha256=<hex-digest>
+```
+
+Verify on your server before trusting the payload:
+
+```ts
+import crypto from "node:crypto";
+
+function verifyWebhook(rawBody: string, header: string, secret: string) {
+  const expected = "sha256=" + crypto.createHmac("sha256", secret).update(rawBody).digest("hex");
+  return crypto.timingSafeEqual(Buffer.from(header), Buffer.from(expected));
+}
+```
+
+The secret is shown once when a webhook is created and can be rotated from the dashboard. Rotating invalidates the previous signature.
 
 ## Delivery and Retries
 

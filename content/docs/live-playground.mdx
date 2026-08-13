@@ -1,0 +1,63 @@
+---
+title: "Live Playground"
+description: "An in-browser CDP viewer at /web/playground. Click into a live browser session from the dashboard, exercise a page, and optionally save the resulting state to a profile."
+---
+
+An in-browser CDP viewer at `/web/playground`. Click into a live browser session from the dashboard, exercise a page, and optionally save the resulting state to a profile.
+
+## What It Is
+
+A dashboard page that streams live pixels from a routed browser session and forwards clicks, typing, and scrolls back to the browser. Useful for:
+
+- Debugging what an agent actually saw before it failed.
+- Building a profile interactively (log into a site once, save the resulting cookies + storage to a profile you can then reuse from code).
+- Sanity-checking a new provider without writing any client code.
+
+## How To Open It
+
+1. Start the gateway: `browser-gateway serve`
+2. Open the dashboard at `http://localhost:9500/web`
+3. Click **Playground** in the sidebar
+4. Pick a provider, optionally pick a profile, click **Start**
+
+The playground opens a fresh browser session on the selected provider, streams its viewport to the page, and captures your input events.
+
+## Save Changes To Profile
+
+When a profile is selected, a **Save changes to profile** checkbox appears next to the profile picker. Checked by default (matching the product default of write-back). Uncheck it to run the session read-only, changes are discarded on disconnect.
+
+See [Profiles → Read-only vs write-back](/profiles#read-only-vs-write-back) for the underlying semantics.
+
+## Keep-Alive Duration
+
+Sessions idle out after a few minutes of inactivity by default. A duration selector next to the Start button lets you extend the keep-alive window for long interactive sessions (log-in flows with 2FA, checkout tests, and similar).
+
+## Under The Hood
+
+The playground uses the `/v1/live` WebSocket endpoint. Auth uses the standard `BG_TOKEN`. The isomorphic client is exposed as an OSS subpath:
+
+```ts
+import { LiveClient } from "browser-gateway/live-client";
+
+const client = new LiveClient({
+  wsUrl: "ws://localhost:9500/v1/live",
+  token: "YOUR_BG_TOKEN",
+});
+
+await client.connect({
+  provider: "runtime",
+  profile: "acme-prod",
+  readOnly: false,          // uncheck the "Save changes to profile" box → true
+  keepAliveMs: 15 * 60_000,
+});
+```
+
+The same `LiveClient` powers the dashboard's playground page and can be embedded in your own UI.
+
+## When To Use Which Recording Tool
+
+| Need | Use |
+|---|---|
+| Watch what a background agent saw after the fact | [Session Replays](/replays) with `?session_record=true` |
+| Drive a browser interactively from the dashboard | Playground |
+| Both (drive interactively and keep the recording) | Playground plus the replay plugin attaches automatically to `/v1/live` sessions |

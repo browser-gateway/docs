@@ -12,6 +12,7 @@
     "profiles",
     "sessions",
     "replays",
+    "live-playground",
     "---API Surface---",
     "rest-api",
     "mcp",

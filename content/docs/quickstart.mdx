@@ -41,6 +41,23 @@ docker run -d -p 9222:9222 --shm-size=2g chromedp/headless-shell:latest \
   --no-sandbox --disable-dev-shm-usage
 ```
 
+### With a Bearer-auth provider
+
+For providers that require a custom `Authorization` header instead of a URL query token, use the `headers` field:
+
+```yaml
+version: 1
+gateway:
+  port: 9500
+providers:
+  cloud-bearer:
+    url: wss://provider.example.com/cdp
+    headers:
+      Authorization: Bearer ${API_KEY}
+```
+
+`${API_KEY}` is resolved from the environment (or a `.env` file) at startup. See [Configuration → Custom headers](/configuration#custom-headers) for header merge order and limits.
+
 ## 3. Start the gateway
 
 ```bash
@@ -50,7 +67,7 @@ browser-gateway serve --config gateway.yml
 You should see:
 
 ```
-▲ browser-gateway v0.3.7  ready in 2ms
+▲ browser-gateway vX.Y.Z  ready in 2ms
 
   ➜  Gateway:         http://localhost:9500
   ➜  Dashboard:       http://localhost:9500/web

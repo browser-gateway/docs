@@ -1,0 +1,49 @@
+---
+title: "Client & Provider Compatibility"
+description: "Which clients and provider categories are known to work end-to-end through the gateway."
+---
+
+Which clients and provider categories are known to work end-to-end through the gateway. The gateway is protocol-agnostic at the byte level, so anything speaking CDP or the Playwright wire protocol over WebSocket should work, this page lists what is exercised in the release suite.
+
+## Clients
+
+| Client | Support | Notes |
+|---|---|---|
+| Puppeteer (`puppeteer-core`) | Full | `puppeteer.connect({ browserWSEndpoint })` works against every provider category below. |
+| Playwright (`playwright-core`) | Full | Use `chromium.connect(wsEndpoint)` for Playwright-server providers, `chromium.connectOverCDP(wsEndpoint)` for CDP endpoints. Version pinning still applies for Playwright-server. |
+| Stagehand | Full | Uses Playwright under the hood, so anything true of Playwright is true here. |
+| browser-use | Full | Uses Playwright. |
+| chromedp (Go) | Full | Uses raw CDP. Point at `ws://gateway:9500/v1/connect` like any other CDP endpoint. |
+| MCP clients (Claude Code, Cursor, Windsurf) | Full via the built-in [MCP server](/mcp) | Also works via [Playwright MCP](/mcp#using-with-playwright-mcp) pointed at the gateway. |
+
+## Providers
+
+| Provider category | Support | Notes |
+|---|---|---|
+| Self-hosted runtime ([browserserve](/browserserve)) | Full | The only category safe for multi-profile write-back on a single slot. Auto-detected, capacity is host-derived. |
+| Self-hosted Chrome (`--remote-debugging-port`) | Full | Point at `http://host:9222`, the gateway auto-discovers the CDP path. |
+| Self-hosted Playwright server | Full | Client and server Playwright versions must match exactly. |
+| Any WebSocket CDP endpoint | Full for stateless traffic and read-only profile use | For write-back profile use, pin one profile per slot with `profile:`. See [Profiles → Provider isolation](/profiles#provider-isolation). |
+
+Any provider that speaks CDP over WebSocket should work. The gateway probes each provider on registration and surfaces detected capabilities in the dashboard under **Providers**.
+
+## Feature Support By Provider Category
+
+| Feature | Self-hosted runtime | External CDP |
+|---|---|---|
+| Byte-level relay + routing | Yes | Yes |
+| Failover / cooldown / weighted routing | Yes | Yes |
+| Profile inject (cookies + `localStorage`) | Yes, any profile | Yes, only the pinned profile |
+| Profile inject (`IndexedDB` + service workers) | Yes | No, CDP has no wire format for these |
+| Profile capture-on-navigate (multi-origin) | Yes | Yes |
+| `multiProfile: true` (many profiles per slot) | Yes | Rejected at add-time |
+| Session replay (`?session_record=true`) | Yes | Yes when the provider supports `Page.startScreencast` |
+| Live playground (`WS /v1/live`) | Yes | Yes |
+| Read-only profile sessions (`?readOnly=1`) | Yes | Yes |
+| Automatic residue detection | N/A (fresh session by construction) | Yes, HTTP 409 on cross-profile residue |
+
+## Known Limitations
+
+- **Session reconnection** works with Puppeteer and raw CDP clients. Playwright destroys contexts on disconnect, so it does not survive a reconnect. See [Session Reconnection](/sessions#session-reconnection).
+- **REST endpoints** (`/v1/screenshot`, `/v1/content`, `/v1/scrape`) run against the gateway's internal browser pool, not routed providers, so they don't participate in failover.
+- **Non-Chromium engines** (Firefox, WebKit) are not supported. CDP is Chromium-specific.

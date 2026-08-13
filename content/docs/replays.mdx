@@ -14,22 +14,34 @@ Capture a frame-accurate visual record of every routed session so you can scrub 
 
 ## How It Works
 
-The gateway opens a separate CDP connection to the same provider that's handling the session, attaches to every browser Target the session creates (main page + tabs + iframes), and runs `Page.startScreencast`. Chrome emits a frame each time the rendered viewport actually changes. The gateway writes each frame as a PNG file plus one line to a `manifest.jsonl` per target, then acknowledges the frame so Chrome continues streaming.
+Replay is driven by a pipeline plugin. When a session connects with `?session_record=true`, the gateway attaches a screencast capture plugin to the CDP byte pipe. The plugin sends `Page.setDeviceMetricsOverride` and then `Page.startScreencast` against every browser Target the session creates (main page, popups, iframes). Chrome emits a JPEG frame each time the rendered viewport changes. Frames are chunked to disk in real time, and a `complete.json` manifest is written on session close.
 
-The customer's automation code is never modified. Nothing runs inside the page being scraped. The capture is invisible to the website under test.
+Two things worth knowing:
+
+- `Page.setDeviceMetricsOverride` must be sent before `Page.startScreencast` or Chromium silently emits zero frames. See [puppeteer#10527](https://github.com/puppeteer/puppeteer/issues/10527). The plugin handles this.
+- The plugin lives inside the CDP byte pipe. No separate CDP socket is opened. Nothing runs inside the page being scraped. Capture is invisible to the site under test.
 
 ## Quickstart
 
-Replays are off by default. Enable them in `gateway.yml`:
+Replays are off by default. Enable the feature in `gateway.yml`:
 
 ```yaml
 replay:
   enabled: true
 ```
 
-Restart the gateway. From the next session onward, recordings appear in the **Replays** tab of the dashboard.
+Restart the gateway. Then opt in per session by adding `?session_record=true` to the connect URL:
 
-That's the whole configuration. The defaults pick JPEG frames, 7-day retention, and a 500 MB per-session cap.
+```ts
+const browser = await puppeteer.connect({
+  browserWSEndpoint:
+    "ws://localhost:9500/v1/connect?session_record=true&token=YOUR_BG_TOKEN",
+});
+```
+
+Recordings appear in the **Replays** tab of the dashboard as soon as the session ends.
+
+Defaults: JPEG frames, 7-day retention, 500 MB per-session cap.
 
 ## Configuration Reference
 
@@ -66,12 +78,13 @@ $BG_DATA_DIR/replays/
     targets/
       <target-id>/
         manifest.jsonl          one frame record per line
-        000001.png              6-digit zero-padded frame files
-        000002.png
-        ...
+        chunks/
+          000001.jsonl          chunked frame records with inline payloads
+          000002.jsonl
+          ...
 ```
 
-The 6-digit padding keeps frames in lexicographic order up to 999,999 frames per target.
+Frame chunks are written as the plugin receives them. `complete.json` is the finalization marker written on session close.
 
 ## Provider Support
 
@@ -92,8 +105,8 @@ Check provider capabilities in the dashboard under **Providers** or via `GET /v1
 | `/v1/replays` | GET | List replays (newest first). Accepts `?since=<iso>&limit=<n>`. |
 | `/v1/replays/:id` | GET | Single replay metadata with per-target summaries. |
 | `/v1/replays/:id` | DELETE | Permanent delete. |
-| `/v1/replays/:id/targets/:targetId/manifest` | GET | Stream `manifest.jsonl` for one target. |
-| `/v1/replays/:id/targets/:targetId/frames/:N.png` | GET | Single frame binary. Long-cached. |
+| `/v1/replays/:id/targets/:targetId/manifest` | GET | Stream the target's frame manifest. |
+| `/v1/replays/:id/targets/:targetId/frames/:N` | GET | Single frame binary. Long-cached. |
 | `/v1/replays/:id/targets/:targetId/export.mp4` | GET | H.264-encoded MP4 of the target. Requires `ffmpeg` on the gateway host. Returns 503 with install instructions when missing. |
 
 Auth uses the standard `BG_TOKEN`.
@@ -124,7 +137,7 @@ The player is an image-swap loop driven by manifest timestamps. Play, pause, scr
 
 ## Frame deduplication
 
-Each frame's SHA-1 hash is compared against the previous frame's. Byte-identical consecutive frames are skipped at capture time, only one PNG/JPEG lands on disk and only one manifest entry is written. This is lossless for visual changes: a frame is only dropped when its bytes match the previous frame exactly. The skip count surfaces as `duplicatesSkipped` in `complete.json`.
+Each frame is hashed against the previous frame. Byte-identical consecutive frames are skipped at capture time so only one entry lands on disk. This is lossless for visual changes: a frame is only dropped when its bytes match the previous frame exactly. The skip count surfaces as `duplicatesSkipped` in `complete.json`.
 
 Why this beats "drop pure white frames":
 
@@ -136,15 +149,16 @@ Why this beats "drop pure white frames":
 
 | Connection type | Recorded? |
 |---|---|
-| `WS /v1/connect` (Puppeteer, Playwright, MCP clients) | Yes |
-| `WS /v1/live` (Playground page) | Yes |
+| `WS /v1/connect?session_record=true` (Puppeteer, Playwright, MCP clients) | Yes |
+| `WS /v1/connect` without `session_record` | No |
+| `WS /v1/live` (Playground page) | Yes when the plugin is attached |
 | `POST /v1/screenshot` / `/v1/content` / `/v1/scrape` | No |
 
-REST endpoints are single-shot operations that complete in seconds. Capturing them would dominate the request budget. The cost is also high for what you'd see, a couple of frames of a page load. Use the Playground if you need to inspect a one-off page interactively.
+Recording is per-session opt-in. `session_record` is a URL parameter, not a config toggle, so the same gateway can record some sessions and skip others. REST one-shot endpoints are not recorded. Use the [Playground](/live-playground) for interactive inspection of a single page.
 
 ## MP4 export
 
-The dashboard player exposes an **Export as MP4** button. The endpoint runs `ffmpeg` to encode the captured frames into an H.264 MP4 with variable per-frame durations honoring the original timestamps.
+The dashboard player exposes an **Export as MP4** button. The endpoint runs `ffmpeg` on the gateway host to encode the captured frames into an H.264 MP4 with variable per-frame durations honoring the original timestamps.
 
 The gateway looks for ffmpeg in this order:
 

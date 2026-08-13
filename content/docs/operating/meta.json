@@ -5,6 +5,7 @@
     "load-balancing",
     "queue",
     "webhooks",
+    "compatibility",
     "docker",
     "integrations"
   ]

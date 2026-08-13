@@ -51,32 +51,31 @@ The first thing you see. Shows the current state of your gateway at a glance.
 
 ### Providers
 
-Where you manage your browser providers. This is the most interactive page.
+Where you manage your browser providers. Uses dedicated pages, not a modal.
 
-**Adding a provider:**
-
-Click "Add Provider" to open a dialog. Fill in:
+**Adding a provider:** click **New Provider** in the header to open `/web/providers/new`. Fill in:
 
 | Field | Required | What It Means |
 |-------|----------|--------------|
-| Provider Name | Yes | A short name you'll recognize (e.g., `my-playwright`, `cloud-primary`). Lowercase with hyphens. |
-| WebSocket URL | Yes | The `ws://` or `wss://` URL of your browser provider, including any API keys in the URL. |
+| Provider Name | Yes | A short name you'll recognize (`my-playwright`, `cloud-primary`). Lowercase with hyphens. |
+| WebSocket URL | Yes | The `ws://` or `wss://` URL of your browser provider. |
 | Max Connections | No | How many simultaneous browser sessions this provider can handle. Leave empty for no limit. |
-| Priority | No | Lower number = tried first. Use 1 for primary, 2 for fallback, 3 for last resort. Default: 1. |
+| Priority | No | Lower number = tried first. Live-updating hint shows the resulting routing effect ("Primary. Tried first.", "Fallback #2. Used when higher-priority providers are full or down."). Default: 1. |
+| Weight | No | Higher = more traffic under the weighted strategy. Live-updating hint shows the percentage share. Default: 1. |
 
-You can **test the connection** right from the dialog before saving, click the test button next to the URL field. It'll tell you if the provider is reachable and how fast.
+Under **Advanced**, an editor for custom headers (Bearer tokens, API keys, custom handshake headers) with an eye-toggle to mask sensitive values. See [Configuration → Custom headers](/configuration#custom-headers).
 
-**If you've never added a provider**, the page shows examples of common provider types:
-- **Playwright Server**. A self-hosted Playwright instance (`ws://host:3000`)
-- **Cloud Browser Service**. Any cloud provider with a WebSocket URL and API key
-- **Chrome Remote Debugging**. A Chrome instance with `--remote-debugging-port`
+**Test the connection** from the form before saving. Reports reachability + latency, or the failure reason.
 
-**For each existing provider**, you can:
-- **Test**. Check if the provider is reachable right now (shows latency or error)
-- **Edit**. Change the URL, limits, or priority
-- **Delete**. Remove it from the gateway
+**Editing** an existing provider opens `/web/providers/edit?slug=<name>` with the same form pre-filled.
 
-Changes are saved to your `gateway.yml` automatically.
+**Per-provider card** on the list page shows:
+- Health status (green dot = healthy, red pulsing dot = down or in cooldown)
+- Priority and weight lines, each with the plain-English effect below
+- Active connections vs. max, average latency, total connections routed
+- Test / Edit / Delete actions
+
+Changes save to `gateway.yml` atomically.
 
 ### Sessions
 
@@ -100,7 +99,7 @@ The REST API reference and try-it surface. Every REST endpoint (screenshot, PDF,
 
 ### Playground
 
-A live view of a browser session: navigate with back, forward, and reload, and watch the page render in real time. Useful for confirming a provider works and for debugging what a session actually saw.
+An in-browser CDP viewer that streams a live browser session to the dashboard. Click into the page, exercise it, and optionally save the resulting state to a profile via the **Save changes to profile** checkbox. See [Live Playground](/live-playground) for the full page.
 
 ### Profiles
 

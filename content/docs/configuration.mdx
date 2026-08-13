@@ -50,10 +50,14 @@ gateway:
 providers:
   provider-name:                        # Your name for this provider (any string)
     url: wss://provider.com?token=xxx  # WebSocket URL including any auth params
+    headers:                           # Optional. Custom headers sent on the outbound WS upgrade
+      Authorization: Bearer ${API_KEY} # Needed for providers that require an Authorization header
     limits:
       maxConcurrent: 10                # Max simultaneous connections (optional, no limit if omitted)
     priority: 1                        # Lower number = tried first (default: 1)
     weight: 1                          # For weighted strategy: higher = more traffic (default: 1)
+    profile: my-profile-slug           # Optional. Pin this slot to one profile (see Profiles)
+    multiProfile: false                # Only the self-hosted runtime may set this to true
 
 # Optional: get notified when things happen
 webhooks:
@@ -116,6 +120,57 @@ weight: 3    # For weighted strategy only. Higher = more traffic. Default: 1.
 ```
 
 Weights only matter when using the `weighted` strategy. A provider with `weight: 3` gets 3x more traffic than one with `weight: 1`. See [Load Balancing](/operating/load-balancing#weighted) for detailed examples.
+
+### Custom headers
+
+```yaml
+providers:
+  cloud-with-bearer:
+    url: wss://provider.example.com
+    headers:
+      Authorization: Bearer ${API_KEY}
+      X-Client: browser-gateway
+```
+
+Arbitrary key/value headers sent on the outbound WebSocket upgrade to the provider. Needed for providers that require an `Authorization: Bearer` header instead of a URL query token, or that expect any other custom handshake header.
+
+Merge order for outbound headers:
+
+1. Router userinfo (`https://user:pass@host`) resolves to `Authorization: Basic ...`
+2. Explicit `headers:` values override any client-supplied header of the same name
+
+Limits: 20 headers max, key up to 80 chars, value up to 4 KB.
+
+### Pin to a profile
+
+```yaml
+providers:
+  provider-team-acme:
+    url: wss://provider.example.com?token=${TOKEN_A}
+    profile: team-acme
+```
+
+Pins this slot to serve only `?profile=team-acme` connections (plus stateless traffic when no unpinned slot exists). Required for write-back profile use on external CDP providers. See [Profiles](/profiles#provider-isolation) for the full rationale.
+
+### Multi-profile
+
+```yaml
+providers:
+  runtime:
+    url: ws://browserserve:9222/
+    multiProfile: true    # Only accepted on the self-hosted runtime
+```
+
+`multiProfile: true` tells the gateway this provider can serve multiple profiles concurrently on the same slot. This is only safe on the [self-hosted runtime](/browserserve), where every session gets a fresh isolated Chrome by construction.
+
+Setting `multiProfile: true` on any other provider is **rejected at add-time**:
+
+```
+POST /v1/providers { multiProfile: true, url: "wss://external.example.com/..." }
+→ HTTP 400 "multiProfile is only supported on the self-hosted runtime"
+```
+
+Configs loaded from disk with the same flag on a non-runtime provider are logged as an error at boot and the flag is ignored at runtime.
 
 ## Deep Dives
 
