@@ -71,6 +71,8 @@ The self-hosted runtime gives every connection its own fresh, isolated browser, 
 
 External providers persist state on whatever browser they hand back. Running two profiles on the same underlying browser slot means profile-A's `HttpOnly` cookies, on-disk storage, `localStorage`, and service workers survive into profile-B's session. Undetectable from the gateway's side, no eviction possible. So external providers are supported only when each slot is pinned to exactly one profile:
 
+**OSS gateway (`gateway.yml`):**
+
 ```yaml
 providers:
   provider-team-acme:
@@ -82,14 +84,20 @@ providers:
     profile: team-bravo
 ```
 
+**Cloud SaaS dashboard:** on the Providers page, open the "Which profiles it serves" dropdown for each provider and pick the profile it serves. The options are:
+
+- **Sessions with no profile** — the slot serves connections without `?profile=`.
+- **Any profile** — allowed only on the self-hosted runtime (browserserve). Selecting this on an external provider is rejected on save.
+- **Only `<profile>`** — the slot serves only that specific profile. This is the equivalent of `profile: X` in `gateway.yml`.
+
 `multiProfile: true` on non-runtime providers is **rejected** at add-time and at config-load. The gateway returns a 400 from `POST /v1/providers` and logs a config error on boot. Only the self-hosted runtime is trusted to serve multiple profiles concurrently.
 
-An unpinned external slot (no `profile:` field) serves only stateless traffic (connections with no `?profile=`).
+An unpinned external slot ("Sessions with no profile", or no `profile:` field) serves only stateless traffic (connections with no `?profile=`).
 
 ### Selection rules
 
 - `?profile=X` routes only to a slot pinned to `X`, or to the self-hosted runtime.
-- `?profile=X` with no eligible provider returns HTTP 400.
+- `?profile=X` with no eligible provider returns HTTP 400 with a hint that names the missing pin.
 - `?profile=X&readOnly=1` bypasses the eligibility gate and can route to any healthy CDP provider (see [Read-Only vs Write-Back](#read-only-vs-write-back)).
 - Connections with no `?profile=` route only to unpinned slots.
 
