@@ -15,7 +15,7 @@ browser-gateway supports 5 strategies for choosing which provider handles each c
 | `latency-optimized` | Fastest response | Send to the provider that connects fastest |
 | `weighted` | Proportional distribution | Provider A gets 3x more traffic than Provider B |
 
-## priority-chain (default)
+## priority-chain
 
 **What it does**: Always tries providers in a fixed order. The first available one wins.
 
@@ -46,7 +46,7 @@ providers:
 
 **Real-world example**: You have a free tier with 3 concurrent sessions. You want to use all 3 free slots before paying for overflow on a second provider. Set the free tier as priority 1, paid as priority 2.
 
-## round-robin
+## round-robin (default)
 
 **What it does**: Distributes connections evenly by rotating through providers. First request goes to A, second to B, third to C, fourth back to A, and so on.
 
