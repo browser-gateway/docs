@@ -18,6 +18,8 @@ docker run --rm -p 9222:9222 --shm-size=1g ghcr.io/browser-gateway/browserserve:
 
 The image runs out of the box. Chromium's sandbox stays on where the host allows it; where the host blocks the system calls it needs (Docker's default profile, and most managed platforms), browserserve logs a warning and falls back to `--no-sandbox` automatically, so the browser still runs. Session isolation does not depend on the sandbox, so the fallback is safe. To keep the sandbox on, or to require it, see [Security](#security).
 
+`--shm-size=1g` is recommended but no longer required to avoid crashes. Docker's default shared-memory area is 64 MiB, which is too small for Chromium under concurrency and causes renderer crashes. browserserve detects a too-small `/dev/shm` at startup and automatically routes shared memory to disk (`--disable-dev-shm-usage`), so it stays stable either way; giving it `--shm-size=1g` keeps the faster in-memory path. The size is reported by `browserserve doctor` and `browserserve check`.
+
 Connect with any CDP client. Every WebSocket connection gets its own freshly launched browser:
 
 ```js
@@ -76,9 +78,13 @@ The isolation contract (fresh browser, fresh profile directory, wiped on disconn
 
 ### Capacity
 
-When `pool.maxSessions` is unset, browserserve measures the host at startup and derives a safe ceiling: the smaller of the memory budget divided by a measured browser's footprint, the PID/thread budget divided by a measured browser's thread count, and roughly two sessions per CPU. `GET /pressure` reports the ceiling and, as `capacitySource`, which limit set it (`config`, `memory`, `pids`, or `cpu`).
+When `pool.maxSessions` is unset, browserserve measures the host's real ceiling at startup rather than guessing. It brings up real recording sessions one at a time until the host reaches its edge (a launch failure or a memory safety line), then holds all of them together under full load for a window matching a real session and keeps the count that stays healthy. That is the honest number of sessions the host can actually run at once, and it depends on the machine: the same container gives a different number on a fast idle box than on a busy shared one, because a host can bring up more sessions gradually than it can sustain when they all run together. The measured number becomes the pool ceiling and is advertised on `GET /json/version` (as `Browserserve-MaxConcurrent`), so a gateway routing to this instance schedules it accurately instead of overloading it.
 
-The PID/thread limit is easy to miss: on a container with a low `pids.max`, the real ceiling can be a handful of browsers even with plenty of free memory, because each Chrome spawns dozens of threads. If sessions start returning 503 well before memory is exhausted, check `capacitySource` in `/pressure`; it will read `pids`.
+While calibration runs, the instance reports not-ready: `GET /ready` returns 503, `GET /json/version` carries `Browserserve-Calibrating: true`, and new sessions are refused so calibration has the host to itself. It finishes in seconds and begins accepting sessions the moment the ceiling is set; a gateway that probes during this window waits and retries.
+
+Calibration runs once, at startup, and never drives the host into an out-of-memory: it only ever adds one session at a time and backs off before pressure. To skip it and use a fast, conservative estimate instead, set `BROWSERSERVE_CALIBRATE=false` (or `pool.calibrate: false`). That suits deploys that do not route through a gateway reading the advertised number, or that want instant-ready startup. Precedence: an explicit `pool.maxSessions` always wins, then calibration, then the estimate. `GET /pressure` reports the resulting ceiling and its source.
+
+The estimate and the memory line both account for a limit that is easy to miss: on a container with a low `pids.max`, the real ceiling can be a handful of browsers even with plenty of free memory, because each Chrome spawns dozens of threads. If sessions start returning 503 well before memory is exhausted, that thread limit is usually why.
 
 ### Startup and scale-to-zero
 
@@ -106,6 +112,7 @@ Configuration is a YAML file (`browserserve.yml` in the working directory, or `B
 |---|---|---|
 | `pool.minReady` | `1` | Browsers kept launched and ready ahead of demand. Set to `0` for scale-to-zero (no idle browsers; launch on demand). |
 | `pool.maxSessions` | unset (auto) | Hard ceiling of concurrent browsers. Left unset, it is derived from the host. |
+| `pool.calibrate` | `true` | Measure the real ceiling at startup (see [Capacity](#capacity)). Set `false` to skip it and use a fast conservative estimate. Ignored when `pool.maxSessions` is set. |
 | `pool.maxQueue` | `10` | Clients allowed to wait for a slot before rejection. |
 | `pool.queueTimeoutMs` | `30000` | How long a queued client waits before a 503. |
 | `session.memoryMaxMb` | `0` | Per-session memory cap in MiB (kernel-enforced on a delegated host, RSS soft cap otherwise; `0` = disabled, let the container's own memory limit be the OOM boundary). Recommended sizing when enabled: `container_memory_mb / maxSessions × 0.8`. |
@@ -135,6 +142,7 @@ Every tuning knob has an environment-variable equivalent, so container and serve
 | `BROWSERSERVE_DATA_DIR` | `dataDir` | Where per-session state lives. |
 | `BROWSERSERVE_MIN_READY` | `pool.minReady` | Warm browsers to keep. `0` for scale-to-zero. |
 | `BROWSERSERVE_MAX_SESSIONS` | `pool.maxSessions` | Concurrent-session ceiling. Must be ≥ 1. |
+| `BROWSERSERVE_CALIBRATE` | `pool.calibrate` | Measure the real ceiling at startup. `false` skips it for a fast estimate. |
 | `BROWSERSERVE_MAX_QUEUE` | `pool.maxQueue` | Queued clients before rejection. |
 | `BROWSERSERVE_QUEUE_TIMEOUT_MS` | `pool.queueTimeoutMs` | Milliseconds a queued client waits before 503. |
 | `BROWSERSERVE_IDLE_TIMEOUT_MS` | `session.idleTimeoutMs` | Kill client-idle sessions after N ms. `0` disables. |

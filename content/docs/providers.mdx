@@ -143,6 +143,44 @@ providers:
 
 The gateway tries them in priority order. If the primary is full or down, traffic routes to the next available provider automatically.
 
+## Provider Capacity
+
+Every provider has a real concurrency ceiling. Set `maxConcurrent` to the smaller of what the provider actually handles and what you have paid for.
+
+### Browserless (self-hosted or Railway)
+
+The `ghcr.io/browserless/chromium` container on an 8 GB / 8 vCPU host holds **5 concurrent sessions safely, with 6 as the absolute ceiling**. Above 6, incoming sessions serialize inside Browserless's internal multiplexer and clients start hitting timeouts.
+
+We verified this by ramping load until sessions failed. At the failure point, host RAM peaked at 21% and CPU at 6%, so the cliff is not resource-bound. Browserless documentation claims 10 sessions per GB of RAM; the observed number is 0.625 per GB.
+
+```yaml
+providers:
+  browserless-1:
+    url: wss://browserless-1.example.com?token=${TOKEN_1}
+    limits:
+      maxConcurrent: 5
+  browserless-2:
+    url: wss://browserless-2.example.com?token=${TOKEN_2}
+    limits:
+      maxConcurrent: 5
+```
+
+To serve N concurrent sessions on Browserless, provision `ceil(N / 5)` instances. If your traffic bursts (many session opens within a few seconds), keep at least 20% headroom below the fleet ceiling. Simultaneous saturation across every slot in the fleet can push individual instances briefly above their per-instance ceiling and trigger the serialization behavior.
+
+Bump `TIMEOUT` on Browserless to a real value (default is 30000 ms, which kills sessions at 30 seconds regardless of activity):
+
+```bash
+docker run -e TIMEOUT=3600000 ghcr.io/browserless/chromium
+```
+
+### browserserve
+
+browserserve's `/json/version` endpoint advertises the concurrency the host can actually sustain, measured on the host at startup. The gateway reads this on provider add and adopts it when `maxConcurrent` is left unset.
+
+### Other providers
+
+Ask the vendor for the real number, not the marketing number. If in doubt, ramp your own load until sessions start failing and set `maxConcurrent` to 80% of the last clean level.
+
 ## Custom Headers
 
 Some providers require an `Authorization: Bearer <key>` header on the WebSocket upgrade instead of a URL query token. Configure custom headers per provider:
