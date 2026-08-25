@@ -81,9 +81,11 @@ Traditional circuit breakers need health probes to test if a provider has recove
 - Simple to reason about (either in cooldown or not)
 - Automatically adapts (if the provider recovers quickly, the next connection works)
 
-### Single Provider Protection
+### Single Provider Warning
 
-If you only have one provider configured, the cooldown threshold is much higher (100% failure rate with 5+ attempts). This prevents the gateway from disabling your only provider over a few transient errors.
+Cooldown applies the same 50% failure rate / 3 requests rule regardless of how many providers are configured. If you have only one provider and it fails 3+ times in a 60-second window, that provider enters cooldown for 30 seconds and every new connection during that window fails with `no eligible provider available`.
+
+If you run a single provider, either configure a fallback or raise `failureThreshold` and `minRequestVolume` so transient errors do not take your gateway offline.
 
 ## Checking Failover Status
 
