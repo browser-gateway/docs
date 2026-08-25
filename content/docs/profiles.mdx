@@ -86,9 +86,9 @@ providers:
 
 **Cloud dashboard:** on the Providers page, open the "Which profiles it serves" dropdown for each provider and pick the profile it serves. The options are:
 
-- **Sessions with no profile** — the slot serves connections without `?profile=`.
-- **Any profile** — allowed only on the self-hosted runtime (browserserve). Selecting this on an external provider is rejected on save.
-- **Only `<profile>`** — the slot serves only that specific profile. This is the equivalent of `profile: X` in `gateway.yml`.
+- **Sessions with no profile**. The slot serves connections without `?profile=`.
+- **Any profile**. Allowed only on the self-hosted runtime (browserserve). Selecting this on an external provider is rejected on save.
+- **Only `<profile>`**. The slot serves only that specific profile. This is the equivalent of `profile: X` in `gateway.yml`.
 
 `multiProfile: true` on non-runtime providers is **rejected** at add-time and at config-load. The gateway returns a 400 from `POST /v1/providers` and logs a config error on boot. Only the self-hosted runtime is trusted to serve multiple profiles concurrently.
 
@@ -129,6 +129,22 @@ The [self-hosted runtime](./browserserve) is exempt from the check because every
 **What to do when you see a 409**: pin one profile per external provider slot with `profile: X` (see [Provider Isolation](#provider-isolation) above), or route profile traffic to the self-hosted runtime.
 
 Marker cookies and marker `localStorage` are filtered out of every captured profile blob, so they never persist into a user profile.
+
+## Concurrent Same-Profile Writes
+
+Only one session can hold a profile's write lock at a time. If a second session opens the same profile with write-back while the first is still active, the second waits up to 15 seconds for the first to release. If the wait runs out, the request is rejected with HTTP 409 and a `Retry-After` header.
+
+```
+HTTP/1.1 409 Conflict
+Retry-After: 15
+Content-Type: text/plain
+
+Profile is in use by another session
+```
+
+The `Retry-After` value is the maximum lock wait budget in seconds. Retry after that time to make progress.
+
+Read-only sessions with `?readOnly=1` never contend for the lock, so many read-only sessions can share the same profile at once. See [Read-Only vs Write-Back](#read-only-vs-write-back).
 
 ## Quickstart. Enabling The Feature
 
