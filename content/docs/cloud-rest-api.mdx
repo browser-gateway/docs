@@ -1,0 +1,209 @@
+---
+title: "Cloud REST API"
+description: "Programmatic access to your browsergateway.com workspace over HTTP with a bearer token."
+---
+
+## What it is
+
+The Cloud REST API is the same control plane the dashboard at `app.browsergateway.com` talks to. Anything you do in the dashboard (list sessions, manage providers, create profiles, read replays, top up the wallet, configure webhooks) can be scripted through this API.
+
+This is distinct from two other surfaces on the platform:
+
+| Surface | Base URL | Auth | Purpose |
+|---|---|---|---|
+| **Cloud REST API** (this page) | `https://app-api.browsergateway.com/v1` | `Authorization: Bearer bga_...` | Control-plane HTTP: manage workspaces, providers, profiles, sessions, billing |
+| **Cloud CDP endpoint** | `wss://cdp.browsergateway.io/v1/connect?token=bg_...` | Router key in query string | Open a browser session over CDP (Puppeteer / Playwright) |
+| **Self-hosted gateway REST** | `http://your-host:9500/v1/*` | `BG_TOKEN` env var | The same surface as this API but on the OSS gateway you run yourself. See [Gateway REST API](/rest-api). |
+
+Cloud tokens and self-hosted `BG_TOKEN` are separate systems. A token created here works only against `app-api.browsergateway.com`.
+
+## Get a token
+
+Sign in to `app.browsergateway.com`, open the **Keys** page, and click **New access token**. Give it a label so you can spot it in the list later (`ci-runner`, `analytics-dashboard`, etc.).
+
+The plaintext token is shown once, right after creation. Copy it immediately. If you lose it, revoke the token and create a new one.
+
+Tokens are user-scoped. They act with your workspace membership across every workspace you belong to. The active workspace is the one set as your default in the dashboard; override it per-request with an `X-Workspace-Id` header.
+
+## Auth
+
+Every request carries the bearer in the `Authorization` header:
+
+```bash
+curl https://app-api.browsergateway.com/v1/me \
+  -H "Authorization: Bearer bga_YOUR_TOKEN_HERE"
+```
+
+Bearer tokens work on every read + most writes across the control plane. A short list of high-risk endpoints requires a signed-in browser session and rejects bearers with HTTP 403. See [Cookie-only endpoints](#cookie-only-endpoints).
+
+Every bearer request updates the token's `lastUsedAt` timestamp (throttled to one write per hour per token, visible on the Keys page).
+
+## Endpoints
+
+Grouped by resource. Every path is under `https://app-api.browsergateway.com`.
+
+### Session + user
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/v1/me` | Active user, workspace, and router |
+| `GET` | `/v1/workspaces` | Every workspace you belong to |
+| `GET` | `/v1/workspaces/current/members` | List members of the active workspace |
+| `GET` | `/v1/workspaces/current/onboarding` | Onboarding checklist state |
+
+### Providers
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/v1/providers` | List providers on the active router |
+| `POST` | `/v1/providers` | Add a provider |
+| `PUT` | `/v1/providers/:id` | Update a provider |
+| `DELETE` | `/v1/providers/:id` | Remove a provider |
+| `POST` | `/v1/providers/:id/test` | Test connection to a provider |
+| `POST` | `/v1/providers/:id/capabilities/revalidate` | Re-probe capabilities |
+
+### Routers
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/v1/routers` | List routers in the workspace |
+| `POST` | `/v1/routers` | Create a router |
+| `PATCH` | `/v1/routers/:id` | Update strategy, timeouts, queue settings |
+| `DELETE` | `/v1/routers/:id` | Delete a router |
+
+### API keys (router)
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/v1/api-keys` | List router keys |
+| `POST` | `/v1/api-keys/rotate` | Rotate the router key |
+
+Router keys are the credential you pass on `wss://cdp.browsergateway.io/v1/connect?token=...`. Different artefact from this API's bearer token.
+
+### Profiles
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/v1/profiles` | List saved browser profiles |
+| `POST` | `/v1/profiles` | Save a captured profile |
+| `POST` | `/v1/profiles/import-playwright` | Import a Playwright storageState JSON |
+| `GET` | `/v1/profiles/:id` | Fetch profile metadata |
+| `GET` | `/v1/profiles/:id/export?format=playwright` | Export as Playwright storageState |
+| `DELETE` | `/v1/profiles/:id` | Delete a profile |
+
+### Sessions + replays
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/v1/sessions` | List recent sessions (session-log rows) |
+| `GET` | `/v1/sessions/:id` | Session detail |
+| `GET` | `/v1/replays` | List session recordings |
+| `GET` | `/v1/replays/:id` | Replay metadata |
+| `GET` | `/v1/replays/:id/manifest` | Frame manifest |
+| `GET` | `/v1/replays/:id/mp4` | Download MP4 (once encoded) |
+| `GET` | `/v1/inspections` | List observability traces (Pro+) |
+| `GET` | `/v1/inspections/:id` | Trace detail |
+
+### Webhooks
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/v1/webhooks` | List configured webhooks |
+| `POST` | `/v1/webhooks` | Add a webhook |
+| `PUT` | `/v1/webhooks/:id` | Update a webhook |
+| `DELETE` | `/v1/webhooks/:id` | Remove a webhook |
+| `POST` | `/v1/webhooks/:id/test` | Send a test event |
+
+### Billing (read-only via bearer)
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/v1/billing/summary` | Wallet balance + this-period usage |
+| `GET` | `/v1/billing/usage` | Line-item usage breakdown |
+| `GET` | `/v1/billing/transactions` | Recent top-ups |
+| `GET` | `/v1/billing/transactions/:id` | Transaction detail |
+
+### Account (tokens)
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/v1/access-tokens` | List your account tokens |
+
+Token create / rotate / revoke are cookie-only (see below).
+
+## Cookie-only endpoints
+
+A short list of high-risk endpoints reject bearer tokens with HTTP 403 and require an active browser session. Bearer requests to these get:
+
+```json
+{ "ok": false, "error": { "code": "cookie_required", "message": "This endpoint requires a session cookie, not a bearer token." } }
+```
+
+Cookie-only paths:
+
+- `POST /v1/access-tokens`: create a new bearer token
+- `POST /v1/access-tokens/:id/rotate`: rotate a bearer token
+- `POST /v1/access-tokens/:id/revoke`: revoke a bearer token
+- `DELETE /v1/workspaces/current`: delete the workspace
+- `DELETE /v1/workspaces/current/members/:userId`: remove a member
+- `POST /v1/workspaces/current/invitations`: invite a member
+- `POST /v1/billing/checkout`: start a wallet top-up
+
+The reason: a leaked bearer must not be able to escalate its own permissions, drain the wallet, or remove people. These flows require you to be present at the dashboard.
+
+## Response shape
+
+Every endpoint returns JSON in a consistent envelope:
+
+```json
+{ "ok": true, "data": { "..." } }
+```
+
+or on error:
+
+```json
+{ "ok": false, "error": { "code": "not_found", "message": "Profile not found." } }
+```
+
+Common error codes:
+
+| Code | HTTP | Meaning |
+|---|---|---|
+| `unauthenticated` | 401 | Missing or invalid bearer |
+| `cookie_required` | 403 | Endpoint rejects bearer, needs cookie session |
+| `forbidden` | 403 | Signed in but not permitted for this action |
+| `not_found` | 404 | Resource missing or scoped to another workspace |
+| `validation_error` | 400 | Request body failed schema |
+| `limit_reached` | 409 | Fair-use ceiling hit (see plan limits) |
+
+## Rotation grace
+
+Rotating a token (via the dashboard) mints a new token immediately and marks the old one to expire 24 hours later. During the grace window BOTH tokens work, so you can swap the value in your config without downtime. After 24 hours the old token returns 401.
+
+## End-to-end example
+
+List your profiles, create a new one, and read it back:
+
+```bash
+BASE=https://app-api.browsergateway.com/v1
+TOKEN=bga_YOUR_TOKEN_HERE
+
+curl -s "$BASE/profiles" -H "Authorization: Bearer $TOKEN" | jq
+
+curl -s -X POST "$BASE/profiles" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"slug":"acme-checkout","label":"Acme checkout state","captured":{"version":1,"cookies":[],"origins":[]}}' | jq
+
+curl -s "$BASE/profiles" -H "Authorization: Bearer $TOKEN" | jq '.data.items[] | .slug'
+```
+
+## Rate limits
+
+There's no per-token request-rate cap in v1. Workspace-wide caps (BYOK sessions per month, profile count, router count) still apply. See [Plan limits](/billing).
+
+## What's not on this API
+
+- Opening a CDP session. Use `wss://cdp.browsergateway.io/v1/connect?token=...` with a **router key**, not a bearer. Puppeteer/Playwright code stays exactly the same.
+- Self-hosted gateway management. That's `http://your-host:9500/v1/*` with `BG_TOKEN`. See [Gateway REST API](/rest-api).
+- Admin operations (workspace provisioning, D1 access, etc.). Internal only.
