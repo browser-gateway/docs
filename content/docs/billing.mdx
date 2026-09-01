@@ -7,7 +7,7 @@ Applies to `app.browsergateway.com` (cloud). The OSS `browser-gateway` npm packa
 
 ## The model in one paragraph
 
-No subscriptions. You start free. Everything that costs us real money — session recording, observability broadcast, BYOK usage above the ceiling — draws from your wallet at a published per-unit rate. When you want more, you top up. The amount you top up is exactly the amount added to your wallet — we absorb the card processing cost. Our revenue comes from margin on the metered features you use. Your browser provider bill (Browserless, Steel, Browserbase, Cloudflare Browser Rendering, or your own runtime) is separate.
+No subscriptions. You start free. Everything that costs us real money (session recording, observability broadcast, BYOK usage above the ceiling) draws from your wallet at a published per-unit rate. When you want more, you top up. The amount you top up is exactly the amount added to your wallet: we absorb the card processing cost. Our revenue comes from margin on the metered features you use. Your browser provider bill (Browserless, Steel, Browserbase, Cloudflare Browser Rendering, or your own runtime) is separate.
 
 ## Account states
 
@@ -40,8 +40,9 @@ Anything below requires wallet balance greater than zero. Charges draw at sessio
 
 - **Session recording** at `$0.007` per minute of encoded video, drawn from wallet.
 - **Observability broadcast** at `$0.05` per 1,000 events, drawn from wallet.
+- **[Data API](/cloud-data-api)** at `$0.001` per successful call (screenshot / content / scrape).
 - **10,000 sessions per day** rate limit (up from 100).
-- **Account REST API**.
+- **[Cloud REST API](/cloud-rest-api)** with a raised daily cap (100,000 calls/day up from 5,000).
 - BYOK sessions above the 100k monthly ceiling at `$0.0005` per session, drawn from wallet.
 
 ## What Enterprise adds
@@ -64,6 +65,7 @@ Enterprise is a contract, not a self-serve plan:
 | Bandwidth | Free, unlimited |
 | Session recording | `$0.007` per minute of encoded video |
 | Observability broadcast | `$0.05` per 1,000 events |
+| Data API (screenshot / content / scrape) | `$0.001` per successful call |
 | Wallet top-up fee | None. You pay what you top up. |
 | Minimum top-up | `$5` |
 | Maximum top-up | `$25,000` per transaction |

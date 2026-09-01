@@ -200,10 +200,23 @@ curl -s "$BASE/profiles" -H "Authorization: Bearer $TOKEN" | jq '.data.items[] |
 
 ## Rate limits
 
-There's no per-token request-rate cap in v1. Workspace-wide caps (BYOK sessions per month, profile count, router count) still apply. See [Plan limits](/billing).
+Bearer-authenticated calls are capped per workspace per day:
+
+| Account state | Daily cap |
+|---|---|
+| Free (no top-up) | 5 000 |
+| Paid (any top-up) | 100 000 |
+| Enterprise | Contract-negotiated |
+
+Over-cap responses are `429 Too Many Requests` with a `Retry-After` header and a reset ISO timestamp in the body. Every allowed response includes `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset` (Unix seconds).
+
+Session-cookie traffic from the dashboard is exempt; the caps apply only to programmatic bearer clients.
+
+Workspace-wide fair-use caps (BYOK sessions per month, profile count, router count) still apply. See [Billing](/billing).
 
 ## What's not on this API
 
-- Opening a CDP session. Use `wss://cdp.browsergateway.io/v1/connect?token=...` with a **router key**, not a bearer. Puppeteer/Playwright code stays exactly the same.
-- Self-hosted gateway management. That's `http://your-host:9500/v1/*` with `BG_TOKEN`. See [Gateway REST API](/rest-api).
-- Admin operations (workspace provisioning, D1 access, etc.). Internal only.
+- **Opening a CDP session.** Use `wss://cdp.browsergateway.io/v1/connect?token=...` with a **router key**, not a bearer.
+- **One-shot browser actions** (screenshot / content / scrape). Those live on the [Cloud Data API](/cloud-data-api) at `cdp.browsergateway.io/v1/*` and draw from your wallet at $0.001 per call.
+- **Self-hosted gateway management.** That's `http://your-host:9500/v1/*` with `BG_TOKEN`. See [Gateway REST API](/rest-api).
+- **Admin operations** (workspace provisioning, D1 access, etc.). Internal only.

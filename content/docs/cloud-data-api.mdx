@@ -1,0 +1,229 @@
+---
+title: "Cloud Data API"
+description: "One-shot screenshots, page content, and structured scraping over HTTPS. No client library required."
+---
+
+## What it is
+
+Three HTTPS endpoints on `cdp.browsergateway.io` that return page data directly, without a Puppeteer or Playwright client. Point curl at them and you get back an image, a markdown document, or a JSON object of selector matches.
+
+| Endpoint | Returns | Body cap |
+|---|---|---|
+| `POST /v1/screenshot` | Raw image bytes (PNG or JPEG) | 25 MB |
+| `POST /v1/content` | JSON with page content in one or more formats | 10 MB |
+| `POST /v1/scrape` | JSON with CSS-selector matches, optional formats and screenshot | 5 MB |
+
+Every successful call draws `$0.001` from your workspace wallet. Errors (4xx and 5xx responses) never charge. Free-tier workspaces receive HTTP 402 with a link to add credits.
+
+This is a distinct surface from two others on the platform:
+
+| Surface | Base URL | Auth | Purpose |
+|---|---|---|---|
+| **Cloud Data API** (this page) | `https://cdp.browsergateway.io/v1` | Router key `Bearer bg_...` | One-shot browser actions |
+| [**Cloud CDP endpoint**](/) | `wss://cdp.browsergateway.io/v1/connect?token=bg_...` | Router key in query string | Full CDP session for Puppeteer / Playwright |
+| [**Cloud Control API**](/cloud-rest-api) | `https://app-api.browsergateway.com/v1` | Account token `Bearer bga_...` | Manage workspaces, providers, billing |
+
+The router key and the account token are separate systems. The router key powers CDP + Data API; the account token powers the control-plane API.
+
+## Auth
+
+Every request carries the router key in the `Authorization` header:
+
+```bash
+curl -X POST "https://cdp.browsergateway.io/v1/screenshot" \
+  -H "Authorization: Bearer bg_YOUR_ROUTER_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"url":"https://example.com"}'
+```
+
+Alternatively, pass the key as `?token=`:
+
+```bash
+curl -X POST "https://cdp.browsergateway.io/v1/screenshot?token=bg_YOUR_ROUTER_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"url":"https://example.com"}'
+```
+
+The router key is the same one you paste into Puppeteer or Playwright for CDP connections. Find it on the **Keys** page in the dashboard.
+
+## Billing
+
+Each successful call is $0.001 (0.1 cent). Wallet balance must be above zero when the request arrives. Failure modes:
+
+| Response | Meaning | Wallet charged? |
+|---|---|---|
+| 200 | Success | Yes, $0.001 |
+| 400 | Validation error or provider not configured | No |
+| 402 | Insufficient wallet balance | No |
+| 408 | 30-second wall-clock timeout | No |
+| 413 | Response body exceeded the endpoint cap | No |
+| 503 | No provider available (all in cooldown or at capacity) | No |
+
+Data API calls do **not** count against the 100 000 free BYOK sessions per month. They are a separately-priced product, similar to session recording and observability broadcast.
+
+## /v1/screenshot
+
+Capture a screenshot of any URL as PNG or JPEG. Response body is raw image bytes.
+
+```bash
+curl -X POST "https://cdp.browsergateway.io/v1/screenshot" \
+  -H "Authorization: Bearer bg_..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://example.com",
+    "format": "png",
+    "fullPage": true,
+    "viewport": { "width": 1440, "height": 900 }
+  }' \
+  --output screenshot.png
+```
+
+Request body:
+
+| Field | Type | Default | Notes |
+|---|---|---|---|
+| `url` | string | required | Fully qualified URL to load |
+| `format` | `"png"` \| `"jpeg"` | `"png"` | Image format |
+| `fullPage` | boolean | `false` | Scroll and capture the entire scrollable area |
+| `viewport` | `{width, height}` | `{1280, 720}` | Browser viewport |
+| `quality` | number 0-100 |  | JPEG only |
+| `selector` | string |  | Capture the first element matching this CSS selector |
+| `clip` | `{x, y, width, height}` |  | Capture only a region |
+| `omitBackground` | boolean | `false` | Transparent background (PNG only) |
+| `scrollPage` | boolean | `false` | Scroll through before capture to trigger lazy loading |
+| `waitUntil` | string | `"domcontentloaded"` | `load`, `domcontentloaded`, `networkidle`, `commit` |
+| `waitForSelector` | string |  | Wait for this selector after navigation (10 s cap) |
+| `waitForTimeout` | number |  | Extra ms to wait after load (0 to 30000) |
+| `timeout` | number | `30000` | Total navigation timeout (1000–60000) |
+| `headers` | object |  | Extra HTTP request headers |
+| `userAgent` | string |  | Override the browser's user agent |
+
+Response headers:
+
+- `Content-Type`: `image/png` or `image/jpeg`
+- `X-Response-Code`: upstream HTTP status of the navigated page
+- `X-Response-URL`: final URL after any redirects
+- `X-Timing-Total-Ms`: end-to-end wall clock
+- `X-Timing-Navigation-Ms`: time spent on `page.goto`
+
+## /v1/content
+
+Fetch a page and return its content in one or more formats. Useful for AI agents that want clean text or markdown.
+
+```bash
+curl -X POST "https://cdp.browsergateway.io/v1/content" \
+  -H "Authorization: Bearer bg_..." \
+  -H "Content-Type: application/json" \
+  -d '{ "url": "https://example.com", "formats": ["markdown", "text"] }'
+```
+
+Request-body fields extend the screenshot base with:
+
+| Field | Type | Default | Notes |
+|---|---|---|---|
+| `formats` | `string[]` | `["markdown"]` | Any combination of `html`, `markdown`, `text`, `readability` |
+
+Response shape:
+
+```json
+{
+  "success": true,
+  "data": {
+    "url": "https://example.com/",
+    "statusCode": 200,
+    "content": {
+      "markdown": "# Example Domain\n\nThis domain is for use...",
+      "text": "Example Domain\n\nThis domain is for use..."
+    },
+    "metadata": {
+      "title": "Example Domain",
+      "description": "..."
+    },
+    "links": [
+      { "url": "https://www.iana.org/domains/example", "text": "More information..." }
+    ]
+  },
+  "timings": { "total": 432, "navigation": 380, "action": 52 }
+}
+```
+
+`readability` runs the page through a Readability-style extractor (removes chrome, isolates the main article). `markdown` runs the extractor with markdown output. `html` returns raw serialized HTML. `text` returns `document.body.innerText`.
+
+## /v1/scrape
+
+Extract structured data using CSS selectors. Optionally combines selector results with page content and a screenshot in one round-trip.
+
+```bash
+curl -X POST "https://cdp.browsergateway.io/v1/scrape" \
+  -H "Authorization: Bearer bg_..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://example.com",
+    "selectors": [
+      { "name": "title", "selector": "h1" },
+      { "name": "links", "selector": "a", "attribute": "href" }
+    ],
+    "formats": ["markdown"]
+  }'
+```
+
+Additional request-body fields:
+
+| Field | Type | Notes |
+|---|---|---|
+| `selectors` | `array<{name, selector, attribute?}>` | Named CSS queries. Each returns matches with text + outer HTML, optionally an attribute value |
+| `formats` | `string[]` | Also return page content in the requested formats |
+| `screenshot` | boolean | Also return a base64-encoded JPEG screenshot |
+
+Either `selectors` or `formats` (or both) must be provided.
+
+Response shape:
+
+```json
+{
+  "success": true,
+  "data": {
+    "url": "https://example.com/",
+    "statusCode": 200,
+    "selectors": [
+      {
+        "name": "title",
+        "selector": "h1",
+        "results": [{ "text": "Example Domain", "html": "<h1>Example Domain</h1>" }]
+      }
+    ],
+    "content": { "markdown": "# Example Domain..." }
+  },
+  "timings": { "total": 380, "navigation": 350, "action": 30 }
+}
+```
+
+## Profile support
+
+All three endpoints accept an optional `profile` field. When set, the request runs with the saved cookies and localStorage of that profile, and captures the latest state on success. Retries are disabled when a profile is pinned (one-shot; retries could double-commit state).
+
+```json
+{
+  "url": "https://app.example.com/dashboard",
+  "profile": "acme-user-123"
+}
+```
+
+Profile pinning requires the workspace to have profiles enabled and the requested profile to exist. If the profile is locked by another concurrent session, the response is HTTP 409.
+
+## Provider pinning
+
+Pass `provider` to route the request to one specific backend (no failover):
+
+```json
+{
+  "url": "https://example.com",
+  "provider": "browserserve-eu"
+}
+```
+
+If the pinned provider is in cooldown or at capacity, the response is HTTP 503 with no failover attempted.
+
+## Try it from the dashboard
+
+The **REST API** page in the dashboard has an interactive form for each of the three endpoints, autofilled with your active router key.
