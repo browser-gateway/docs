@@ -13,9 +13,10 @@ This is distinct from two other surfaces on the platform:
 |---|---|---|---|
 | **Cloud REST API** (this page) | `https://app-api.browsergateway.com/v1` | `Authorization: Bearer bga_...` | Control-plane HTTP: manage workspaces, providers, profiles, sessions, billing |
 | **Cloud CDP endpoint** | `wss://cdp.browsergateway.io/v1/connect?token=bg_...` | Router key in query string | Open a browser session over CDP (Puppeteer / Playwright) |
+| **Cloud Data API** | `https://cdp.browsergateway.io/v1/*` | `Authorization: Bearer bg_...` (router key) | One-shot screenshot / content / scrape. See [Cloud Data API](/cloud-data-api). |
 | **Self-hosted gateway REST** | `http://your-host:9500/v1/*` | `BG_TOKEN` env var | The same surface as this API but on the OSS gateway you run yourself. See [Gateway REST API](/rest-api). |
 
-Cloud tokens and self-hosted `BG_TOKEN` are separate systems. A token created here works only against `app-api.browsergateway.com`.
+Cloud access tokens (this page) and router keys (for CDP + Data API) are separate systems.
 
 ## Get a token
 
@@ -38,96 +39,750 @@ Bearer tokens work on every read + most writes across the control plane. A short
 
 Every bearer request updates the token's `lastUsedAt` timestamp (throttled to one write per hour per token, visible on the Keys page).
 
+## Common response shape
+
+Every endpoint returns JSON in a consistent envelope.
+
+Success:
+
+```json
+{ "ok": true, "data": { "..." } }
+```
+
+Error:
+
+```json
+{
+  "ok": false,
+  "error": {
+    "code": "not_found",
+    "message": "Profile not found."
+  }
+}
+```
+
+Successful responses always carry rate-limit headers:
+
+```
+X-RateLimit-Limit: 100000
+X-RateLimit-Remaining: 99871
+X-RateLimit-Reset: 1735689600
+```
+
+`X-RateLimit-Reset` is Unix seconds.
+
+## Error codes
+
+| Code | HTTP | Meaning |
+|---|---|---|
+| `unauthenticated` | 401 | Missing or invalid bearer |
+| `cookie_required` | 403 | Endpoint rejects bearer, needs cookie session (see [below](#cookie-only-endpoints)) |
+| `forbidden` | 403 | Signed in but not permitted for this action |
+| `not_found` | 404 | Resource missing or scoped to another workspace |
+| `validation_error` | 400 | Request body failed schema |
+| `limit_reached` | 409 | Fair-use ceiling hit (see plan limits) |
+| `rate_limited` | 429 | Per-day bearer cap exceeded |
+
 ## Endpoints
 
 Grouped by resource. Every path is under `https://app-api.browsergateway.com`.
 
 ### Session + user
 
-| Method | Path | Purpose |
-|---|---|---|
-| `GET` | `/v1/me` | Active user, workspace, and router |
-| `GET` | `/v1/workspaces` | Every workspace you belong to |
-| `GET` | `/v1/workspaces/current/members` | List members of the active workspace |
-| `GET` | `/v1/workspaces/current/onboarding` | Onboarding checklist state |
+#### GET /v1/me
+
+Return the authenticated user, the workspace this token is scoped to, and the active router within it.
+
+Request: no body.
+
+Response:
+
+```json
+{
+  "ok": true,
+  "data": {
+    "user": {
+      "id": "usr_abc123",
+      "email": "you@example.com",
+      "name": "Ada Lovelace",
+      "emailVerified": true,
+      "image": null
+    },
+    "workspaces": [
+      { "id": "ws_personal", "slug": "ada", "name": "Ada", "role": "owner" },
+      { "id": "ws_team", "slug": "acme", "name": "Acme", "role": "member" }
+    ],
+    "activeWorkspaceId": "ws_personal",
+    "activeWorkspacePlan": "free",
+    "activeWorkspaceAccountState": "paid",
+    "routers": [
+      { "id": "rtr_main", "slug": "main", "name": "Main" }
+    ],
+    "activeRouterInstanceId": "rtr_main"
+  }
+}
+```
+
+`activeWorkspaceAccountState` is one of `"free"`, `"paid"`, `"enterprise"`.
+
+To scope a request to a specific workspace you belong to, send `X-Workspace-Id: <id>` on any request.
+
+#### GET /v1/workspaces
+
+List every workspace you belong to.
+
+Response:
+
+```json
+{
+  "ok": true,
+  "data": {
+    "items": [
+      { "id": "ws_personal", "slug": "ada", "name": "Ada", "role": "owner" }
+    ]
+  }
+}
+```
+
+#### GET /v1/workspaces/current/members
+
+Members of the active workspace.
+
+Response:
+
+```json
+{
+  "ok": true,
+  "data": {
+    "items": [
+      { "userId": "usr_abc", "email": "you@example.com", "name": "Ada", "role": "owner", "joinedAt": "2026-09-01T09:12:04.000Z" }
+    ]
+  }
+}
+```
 
 ### Providers
 
-| Method | Path | Purpose |
-|---|---|---|
-| `GET` | `/v1/providers` | List providers on the active router |
-| `POST` | `/v1/providers` | Add a provider |
-| `PUT` | `/v1/providers/:id` | Update a provider |
-| `DELETE` | `/v1/providers/:id` | Remove a provider |
-| `POST` | `/v1/providers/:id/test` | Test connection to a provider |
-| `POST` | `/v1/providers/:id/capabilities/revalidate` | Re-probe capabilities |
+Providers are the browser upstreams the router routes to (browserless, browserserve, Steel, any CDP endpoint).
+
+#### GET /v1/providers
+
+List providers on the active router.
+
+Response:
+
+```json
+{
+  "ok": true,
+  "data": {
+    "items": [
+      {
+        "id": "prv_abc",
+        "slug": "railway-browserless-1",
+        "name": "Railway browserless #1",
+        "url": "wss://browserless-1-production.up.railway.app/",
+        "headers": {},
+        "priority": 100,
+        "weight": 1,
+        "maxConcurrent": 5,
+        "profile": null,
+        "detectedKind": "browserless",
+        "capabilities": { "cdp": true, "screencast": true, "multiProfile": false },
+        "healthy": true,
+        "cooldownUntilMs": null,
+        "createdAt": "2026-08-25T14:12:11.000Z"
+      }
+    ]
+  }
+}
+```
+
+#### POST /v1/providers
+
+Add a provider. Fields marked `?` are optional.
+
+Request:
+
+```json
+{
+  "slug": "my-browserless",
+  "name": "My browserless",
+  "url": "wss://production-sfo.browserless.io/?token=YOUR_TOKEN",
+  "headers": { "X-Region": "sfo" },
+  "priority": 100,
+  "weight": 1,
+  "maxConcurrent": 3,
+  "profile": null
+}
+```
+
+`slug` must be lowercase kebab, unique within the router.
+`maxConcurrent` — leave `null` for unlimited (upstream is authoritative on its own capacity). Browserserve providers self-advertise via `Browserserve-MaxConcurrent`.
+`profile` — set to a profile slug to hard-pin this provider to that profile (required for external providers if you want write-back).
+
+Response `201 Created`:
+
+```json
+{
+  "ok": true,
+  "data": { /* same shape as list item above */ }
+}
+```
+
+Errors: `validation_error` (400), `limit_reached` (409) when `providersPerRouter` fair-use cap is hit.
+
+#### PUT /v1/providers/:id
+
+Update a provider. Any subset of the create fields. On URL/header change the capability probe re-runs.
+
+Response: full provider row.
+
+#### DELETE /v1/providers/:id
+
+Remove a provider. Response: `{ "ok": true, "data": { "id": "prv_abc" } }`.
+
+#### POST /v1/providers/:id/test
+
+Open a probe connection to the provider and report success + latency.
+
+Response:
+
+```json
+{
+  "ok": true,
+  "data": {
+    "reachable": true,
+    "handshakeMs": 428,
+    "detectedKind": "browserless",
+    "capabilities": { "cdp": true, "screencast": true, "multiProfile": false },
+    "advertisedMaxConcurrent": null
+  }
+}
+```
+
+#### POST /v1/providers/:id/capabilities/revalidate
+
+Re-run the capability probe without opening a session. Same response shape as `/test` minus timing.
 
 ### Routers
 
-| Method | Path | Purpose |
-|---|---|---|
-| `GET` | `/v1/routers` | List routers in the workspace |
-| `POST` | `/v1/routers` | Create a router |
-| `PATCH` | `/v1/routers/:id` | Update strategy, timeouts, queue settings |
-| `DELETE` | `/v1/routers/:id` | Delete a router |
+A router-instance is one routing endpoint. Providers, webhooks, replay-enabled toggle etc. scope to it. Workspaces can have multiple routers (`FAIR_USE_LIMITS.routersPerWorkspace`).
+
+#### GET /v1/routers
+
+Response:
+
+```json
+{
+  "ok": true,
+  "data": {
+    "items": [
+      {
+        "id": "rtr_main",
+        "slug": "main",
+        "name": "Main",
+        "strategy": "priority-chain",
+        "replayEnabled": true,
+        "observabilityEnabled": false,
+        "connectionTimeoutMs": 15000,
+        "sessionIdleTimeoutMs": 300000,
+        "healthCheckIntervalMs": 30000,
+        "queueMaxSize": 50,
+        "queueTimeoutMs": 30000,
+        "createdAt": "2026-07-24T10:00:00.000Z"
+      }
+    ]
+  }
+}
+```
+
+#### POST /v1/routers
+
+```json
+{ "slug": "ci-runner", "name": "CI runner" }
+```
+
+Response: full router row.
+
+#### PATCH /v1/routers/:id
+
+Partial update. Any subset of `name`, `strategy`, `replayEnabled`, `observabilityEnabled`, `connectionTimeoutMs`, `sessionIdleTimeoutMs`, `healthCheckIntervalMs`, `queueMaxSize`, `queueTimeoutMs`.
+
+Strategies: `"priority-chain"`, `"round-robin"`, `"least-connections"`, `"latency-optimized"`, `"weighted"`.
+
+#### DELETE /v1/routers/:id
+
+Deletes the router + all its providers + all its keys + all its webhooks. Response `{ "ok": true, "data": { "id": "rtr_main" } }`.
 
 ### API keys (router)
 
-| Method | Path | Purpose |
-|---|---|---|
-| `GET` | `/v1/api-keys` | List router keys |
-| `POST` | `/v1/api-keys/rotate` | Rotate the router key |
+Router keys are the credential you pass on `wss://cdp.browsergateway.io/v1/connect?token=...`. Different artefact from this API's bearer token. One live key per router.
 
-Router keys are the credential you pass on `wss://cdp.browsergateway.io/v1/connect?token=...`. Different artefact from this API's bearer token.
+#### GET /v1/api-keys
+
+```json
+{
+  "ok": true,
+  "data": {
+    "items": [
+      {
+        "id": "key_abc",
+        "prefix": "bg_yYrx",
+        "routerInstanceId": "rtr_main",
+        "createdAt": "2026-08-25T14:12:11.000Z",
+        "lastUsedAt": "2026-09-01T14:03:22.000Z",
+        "rotatedAt": null
+      }
+    ]
+  }
+}
+```
+
+Plaintext is never returned here. Use `GET /v1/api-keys/current/plaintext` (cookie-only) or rotate.
+
+#### POST /v1/api-keys/rotate
+
+Mints a fresh key and marks the previous one to expire in 24 hours (grace window). Response returns the plaintext of the new key ONCE:
+
+```json
+{
+  "ok": true,
+  "data": {
+    "id": "key_new",
+    "prefix": "bg_9Kfr",
+    "plaintext": "bg_9KfrL0aQwxDeMt...",
+    "previousExpiresAt": "2026-09-02T14:12:11.000Z"
+  }
+}
+```
+
+Store `plaintext` immediately; subsequent GETs won't return it.
 
 ### Profiles
 
-| Method | Path | Purpose |
-|---|---|---|
-| `GET` | `/v1/profiles` | List saved browser profiles |
-| `POST` | `/v1/profiles` | Save a captured profile |
-| `POST` | `/v1/profiles/import-playwright` | Import a Playwright storageState JSON |
-| `GET` | `/v1/profiles/:id` | Fetch profile metadata |
-| `GET` | `/v1/profiles/:id/export?format=playwright` | Export as Playwright storageState |
-| `DELETE` | `/v1/profiles/:id` | Delete a profile |
+Persisted per-workspace browser state (cookies + localStorage + IndexedDB per origin).
+
+#### GET /v1/profiles
+
+```json
+{
+  "ok": true,
+  "data": {
+    "items": [
+      {
+        "id": "prf_abc",
+        "slug": "acme-checkout",
+        "name": "Acme checkout state",
+        "sizeBytes": 4218,
+        "originCount": 2,
+        "version": 7,
+        "lastUsedAt": "2026-09-01T13:44:02.000Z",
+        "createdAt": "2026-08-01T09:00:00.000Z"
+      }
+    ]
+  }
+}
+```
+
+#### POST /v1/profiles
+
+Register a new empty profile shell (typical) or seed it with captured state.
+
+Request:
+
+```json
+{
+  "slug": "acme-checkout",
+  "name": "Acme checkout state",
+  "captured": null
+}
+```
+
+Or seeded:
+
+```json
+{
+  "slug": "acme-checkout",
+  "name": "Acme checkout state",
+  "captured": {
+    "version": 1,
+    "cookies": [{ "name": "session", "value": "...", "domain": ".acme.com" }],
+    "origins": [{ "origin": "https://acme.com", "localStorage": { "cart": "..." } }]
+  }
+}
+```
+
+Response `201 Created`: full profile row.
+
+#### POST /v1/profiles/import-playwright
+
+Import a Playwright `storageState` JSON blob directly (as saved by `context.storageState()`).
+
+Request:
+
+```json
+{
+  "slug": "acme-checkout",
+  "name": "Acme checkout state",
+  "storageState": { "cookies": [...], "origins": [...] }
+}
+```
+
+Response `201 Created`: full profile row with the mapped fields.
+
+#### GET /v1/profiles/:slug
+
+Profile metadata. Does NOT include the decrypted blob (blobs are only injected into sessions, never returned to bearer clients).
+
+#### GET /v1/profiles/:slug/export?format=playwright
+
+Return the current profile decrypted, in Playwright `storageState` shape. Use this to seed a local Playwright script from a saved profile.
+
+#### DELETE /v1/profiles/:slug
+
+Removes the profile record and all versioned blobs from R2. Fails with `409 in_use` if a session using it is still open.
 
 ### Sessions + replays
 
-| Method | Path | Purpose |
-|---|---|---|
-| `GET` | `/v1/sessions` | List recent sessions (session-log rows) |
-| `GET` | `/v1/sessions/:id` | Session detail |
-| `GET` | `/v1/replays` | List session recordings |
-| `GET` | `/v1/replays/:id` | Replay metadata |
-| `GET` | `/v1/replays/:id/manifest` | Frame manifest |
-| `GET` | `/v1/replays/:id/mp4` | Download MP4 (once encoded) |
-| `GET` | `/v1/inspections` | List observability traces (Pro+) |
-| `GET` | `/v1/inspections/:id` | Trace detail |
+Read-only surfaces over what your router did.
+
+#### GET /v1/sessions
+
+Query: `?limit=50&cursor=<ts>&state=active|closed|errored&provider=<slug>&since=<ms>`.
+
+Response:
+
+```json
+{
+  "ok": true,
+  "data": {
+    "items": [
+      {
+        "id": "sess_202609_01H8XY_s0",
+        "state": "closed",
+        "kind": "route",
+        "provider": { "id": "prv_abc", "slug": "railway-browserless-1" },
+        "startedAt": "2026-09-01T14:00:03.000Z",
+        "endedAt": "2026-09-01T14:00:41.000Z",
+        "durationMs": 38000,
+        "bytesIn": 12488,
+        "bytesOut": 3902,
+        "billedCents": 0,
+        "profileId": null
+      }
+    ],
+    "nextCursor": "1735732203000",
+    "total": 1284
+  }
+}
+```
+
+Pagination: pass `nextCursor` back as `cursor`. `nextCursor: null` = end of list.
+
+#### GET /v1/sessions/:id
+
+Full detail on one session: everything above plus per-message counts, error reason (if any), replay id / trace id (if any).
+
+#### GET /v1/replays
+
+Session recordings (MP4 or in-progress). Query: `?limit=&cursor=&router=<slug>&sessionLogId=<id>`.
+
+```json
+{
+  "ok": true,
+  "data": {
+    "items": [
+      {
+        "id": "rep_abc",
+        "sessionLogId": "sess_202609_01H8XY_s0",
+        "startedAt": "2026-09-01T14:00:03.000Z",
+        "endedAt": "2026-09-01T14:00:41.000Z",
+        "frameCount": 428,
+        "sizeBytes": 8_842_112,
+        "mp4Status": "ready",
+        "mp4ReadyAt": "2026-09-01T14:01:12.000Z",
+        "truncated": null
+      }
+    ],
+    "nextCursor": null
+  }
+}
+```
+
+`mp4Status`: `"queued" | "running" | "ready" | "failed"`.
+`truncated`: `null | "byte-cap" | "wallet-drained"`.
+
+#### GET /v1/replays/:id
+
+Same fields, single row.
+
+#### GET /v1/replays/:id/manifest
+
+Frame-level manifest (chunk list + timing offsets). JSON.
+
+#### GET /v1/replays/:id/mp4
+
+Returns the MP4 bytes (Content-Type `video/mp4`). Response is a redirect to a signed R2 URL that lives 15 minutes.
+
+If `mp4Status !== "ready"` this returns `409 not_ready` with a body indicating current status.
+
+#### GET /v1/inspections
+
+Observability traces (Pro+). Query: `?router=<slug>&limit=<n>`.
+
+```json
+{
+  "ok": true,
+  "data": {
+    "count": 3,
+    "inspections": [
+      {
+        "id": "ins_abc",
+        "sessionLogId": "sess_...",
+        "startedAt": "2026-09-01T14:00:03.000Z",
+        "endedAt": "2026-09-01T14:00:41.000Z",
+        "eventCount": 128,
+        "sizeBytes": 43_112,
+        "droppedEvents": 0
+      }
+    ]
+  }
+}
+```
+
+#### GET /v1/inspections/:id
+
+Full metadata + a signed URL to the gzipped JSONL event stream in R2.
 
 ### Webhooks
 
-| Method | Path | Purpose |
-|---|---|---|
-| `GET` | `/v1/webhooks` | List configured webhooks |
-| `POST` | `/v1/webhooks` | Add a webhook |
-| `PUT` | `/v1/webhooks/:id` | Update a webhook |
-| `DELETE` | `/v1/webhooks/:id` | Remove a webhook |
-| `POST` | `/v1/webhooks/:id/test` | Send a test event |
+Per-router event dispatchers. Signed with HMAC-SHA256.
 
-### Billing (read-only via bearer)
+#### GET /v1/webhooks
 
-| Method | Path | Purpose |
-|---|---|---|
-| `GET` | `/v1/billing/summary` | Wallet balance + this-period usage |
-| `GET` | `/v1/billing/usage` | Line-item usage breakdown |
-| `GET` | `/v1/billing/transactions` | Recent top-ups |
-| `GET` | `/v1/billing/transactions/:id` | Transaction detail |
+```json
+{
+  "ok": true,
+  "data": {
+    "items": [
+      {
+        "id": "wh_abc",
+        "url": "https://your.app/hooks/bg",
+        "events": ["session.ended", "replay.ready"],
+        "active": true,
+        "createdAt": "2026-08-01T09:00:00.000Z",
+        "lastDeliveryAt": "2026-09-01T14:01:12.000Z",
+        "lastDeliveryStatus": "ok"
+      }
+    ]
+  }
+}
+```
+
+Secret is not returned (write-once, shown at create time).
+
+#### POST /v1/webhooks
+
+```json
+{
+  "url": "https://your.app/hooks/bg",
+  "events": ["session.ended", "replay.ready"]
+}
+```
+
+Response `201 Created`:
+
+```json
+{
+  "ok": true,
+  "data": {
+    "id": "wh_new",
+    "url": "https://your.app/hooks/bg",
+    "events": ["session.ended", "replay.ready"],
+    "secret": "whsec_v1_abc123...",
+    "active": true
+  }
+}
+```
+
+Store `secret` immediately — used to verify HMAC signatures on delivery. Never returned again.
+
+#### PUT /v1/webhooks/:id
+
+Partial update. Any subset of `url`, `events`, `active`.
+
+#### DELETE /v1/webhooks/:id
+
+Remove.
+
+#### POST /v1/webhooks/:id/test
+
+Fire a synthetic `webhook.test` event to the configured URL. Response includes the delivery attempt outcome.
+
+### Billing
+
+Read-only via bearer. Top-up requires cookie session (see [Cookie-only](#cookie-only-endpoints)).
+
+#### GET /v1/billing/summary
+
+```json
+{
+  "ok": true,
+  "data": {
+    "accountState": "paid",
+    "plan": "free",
+    "suspended": false,
+    "period": {
+      "startedAt": "2026-09-01T00:00:00.000Z",
+      "endsAt": "2026-10-01T00:00:00.000Z"
+    },
+    "sessions": {
+      "usedCount": 12_442,
+      "includedCount": 100_000,
+      "usedPct": 0.124,
+      "overageRateCents": 0.05
+    },
+    "wallet": {
+      "balanceUsdCents": 8721,
+      "minTopupCents": 500,
+      "maxTopupCents": 2_500_000,
+      "cardFeePercent": 0,
+      "cardFeeBasisPoints": 0,
+      "cardFeeFixedCents": 0
+    },
+    "rates": {
+      "recordingPerMinuteCents": 0.7,
+      "observabilityPer1kEventsCents": 5,
+      "restCallCents": 0.1
+    }
+  }
+}
+```
+
+#### GET /v1/billing/usage
+
+Query: `?days=30` (max 90).
+
+```json
+{
+  "ok": true,
+  "data": {
+    "days": 30,
+    "series": [
+      { "day": "2026-09-01", "sessions": 128, "bytesIn": 8912, "bytesOut": 2211, "totalBytes": 11123, "billedCents": 12, "errored": 0 }
+    ],
+    "totals": { "sessions": 12442, "bytes": 1_298_112, "billedCents": 4218, "errored": 4 },
+    "breakdown": {
+      "sessionCents": 3200,
+      "restCallCents": 118,
+      "recordingCents": 800,
+      "observabilityCents": 100,
+      "byokOverageCents": 0,
+      "resellerCents": 0,
+      "topupCents": 10000,
+      "refundCents": 0,
+      "grantCents": 0
+    }
+  }
+}
+```
+
+#### GET /v1/billing/ledger
+
+Every wallet mutation this period. Query: `?limit=50&cursor=<tsMs>&kind=<kind>&months=<1..12>`.
+
+`kind` filter values: `session | rest_call | recording | observability | byok_overage | reseller | topup | refund | grant`.
+
+```json
+{
+  "ok": true,
+  "data": {
+    "rows": [
+      {
+        "id": "led_abc",
+        "workspaceId": "ws_personal",
+        "tsMs": 1735732203000,
+        "kind": "rest_call",
+        "amountCents": -1,
+        "balanceAfterCents": 8720,
+        "refKind": "rest_call",
+        "refId": null,
+        "metaJson": "{\"endpoint\":\"screenshot\",\"uncollectedCents\":0}"
+      },
+      {
+        "id": "led_def",
+        "workspaceId": "ws_personal",
+        "tsMs": 1735731000000,
+        "kind": "topup",
+        "amountCents": 10000,
+        "balanceAfterCents": 8721,
+        "refKind": "order",
+        "refId": "ord_xyz",
+        "metaJson": "{\"provider\":\"paddle\",\"providerTxnId\":\"txn_...\"}"
+      }
+    ],
+    "nextCursor": "1735730100000"
+  }
+}
+```
+
+`amountCents` is negative for debits, positive for credits.
+
+#### GET /v1/billing/transactions
+
+Top-ups + refunds (from the `order` table, distinct from the ledger which is broader).
+
+```json
+{
+  "ok": true,
+  "data": {
+    "items": [
+      {
+        "id": "ord_xyz",
+        "provider": "paddle",
+        "providerTxnId": "txn_...",
+        "amountUsdCents": 10000,
+        "status": "paid",
+        "kind": "topup",
+        "receiptUrl": "https://...",
+        "createdAt": "2026-09-01T13:45:00.000Z",
+        "paidAt": "2026-09-01T13:45:12.000Z",
+        "refundedAt": null
+      }
+    ]
+  }
+}
+```
+
+#### GET /v1/billing/transactions/:providerTxnId
+
+Single transaction detail. Useful for reconciling a Paddle event ID.
 
 ### Account (tokens)
 
-| Method | Path | Purpose |
-|---|---|---|
-| `GET` | `/v1/access-tokens` | List your account tokens |
+#### GET /v1/access-tokens
+
+Your bearer tokens (metadata only — plaintext is never returned).
+
+```json
+{
+  "ok": true,
+  "data": {
+    "items": [
+      {
+        "id": "aat_abc",
+        "prefix": "bga_JLNh",
+        "label": "ci-runner",
+        "createdAt": "2026-08-25T14:12:11.000Z",
+        "lastUsedAt": "2026-09-01T14:03:22.000Z",
+        "rotatedAt": null,
+        "expiresAt": null
+      }
+    ],
+    "cap": 20
+  }
+}
+```
 
 Token create / rotate / revoke are cookie-only (see below).
 
@@ -141,44 +796,22 @@ A short list of high-risk endpoints reject bearer tokens with HTTP 403 and requi
 
 Cookie-only paths:
 
-- `POST /v1/access-tokens`: create a new bearer token
-- `POST /v1/access-tokens/:id/rotate`: rotate a bearer token
-- `POST /v1/access-tokens/:id/revoke`: revoke a bearer token
-- `DELETE /v1/workspaces/current`: delete the workspace
-- `DELETE /v1/workspaces/current/members/:userId`: remove a member
-- `POST /v1/workspaces/current/invitations`: invite a member
-- `POST /v1/billing/checkout`: start a wallet top-up
+- `POST /v1/access-tokens` — create a new bearer token
+- `POST /v1/access-tokens/:id/rotate` — rotate a bearer token
+- `POST /v1/access-tokens/:id/revoke` — revoke a bearer token
+- `GET /v1/api-keys/current/plaintext` — fetch the current router-key plaintext (used by the dashboard's autofill)
+- `DELETE /v1/workspaces/current` — delete the workspace
+- `DELETE /v1/workspaces/current/members/:userId` — remove a member
+- `POST /v1/workspaces/current/invitations` — invite a member
+- `POST /v1/billing/checkout` — start a wallet top-up
 
 The reason: a leaked bearer must not be able to escalate its own permissions, drain the wallet, or remove people. These flows require you to be present at the dashboard.
-
-## Response shape
-
-Every endpoint returns JSON in a consistent envelope:
-
-```json
-{ "ok": true, "data": { "..." } }
-```
-
-or on error:
-
-```json
-{ "ok": false, "error": { "code": "not_found", "message": "Profile not found." } }
-```
-
-Common error codes:
-
-| Code | HTTP | Meaning |
-|---|---|---|
-| `unauthenticated` | 401 | Missing or invalid bearer |
-| `cookie_required` | 403 | Endpoint rejects bearer, needs cookie session |
-| `forbidden` | 403 | Signed in but not permitted for this action |
-| `not_found` | 404 | Resource missing or scoped to another workspace |
-| `validation_error` | 400 | Request body failed schema |
-| `limit_reached` | 409 | Fair-use ceiling hit (see plan limits) |
 
 ## Rotation grace
 
 Rotating a token (via the dashboard) mints a new token immediately and marks the old one to expire 24 hours later. During the grace window BOTH tokens work, so you can swap the value in your config without downtime. After 24 hours the old token returns 401.
+
+Same behavior applies to router keys (`POST /v1/api-keys/rotate`).
 
 ## End-to-end example
 
@@ -193,7 +826,7 @@ curl -s "$BASE/profiles" -H "Authorization: Bearer $TOKEN" | jq
 curl -s -X POST "$BASE/profiles" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"slug":"acme-checkout","label":"Acme checkout state","captured":{"version":1,"cookies":[],"origins":[]}}' | jq
+  -d '{"slug":"acme-checkout","name":"Acme checkout state","captured":null}' | jq
 
 curl -s "$BASE/profiles" -H "Authorization: Bearer $TOKEN" | jq '.data.items[] | .slug'
 ```
