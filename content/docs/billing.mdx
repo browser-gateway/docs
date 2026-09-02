@@ -94,3 +94,11 @@ Flat for all accounts. Enterprise contracts can extend.
 - All other free features stay available.
 
 Recordings and observability captures that were already in progress when the balance hit zero stop cleanly. The session itself keeps running.
+
+## Negative balance during a burst
+
+Our enforcement runs at the edge with a cache that refreshes within about a minute. Under a burst of concurrent metered sessions right as your wallet hits zero, a small amount of usage can slip through before enforcement kicks in. Your balance will show as negative for the difference.
+
+The negative balance is a record, not a bill: **the next top-up deducts the negative amount before crediting your wallet.** For example, a wallet at `-$0.30` topped up by `$5` becomes `$4.70`. No penalty, no separate invoice. This matches how OpenAI, Anthropic, and OpenRouter handle the same class of burst.
+
+While your balance is negative, metered features (recording, observability, BYOK sessions above the monthly ceiling) return HTTP 402 at connect time until you top up. Free BYOK routing under the ceiling stays available.
