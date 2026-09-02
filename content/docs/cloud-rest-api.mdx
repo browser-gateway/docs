@@ -637,8 +637,8 @@ Read-only via bearer. Top-up requires cookie session (see [Cookie-only](#cookie-
       "endsAt": "2026-10-01T00:00:00.000Z"
     },
     "sessions": {
-      "usedCount": 12_442,
-      "includedCount": 100_000,
+      "usedCount": 1_244,
+      "includedCount": 10_000,
       "usedPct": 0.124,
       "overageRateCents": 0.05
     },
@@ -652,8 +652,7 @@ Read-only via bearer. Top-up requires cookie session (see [Cookie-only](#cookie-
     },
     "rates": {
       "recordingPerMinuteCents": 0.7,
-      "observabilityPer1kEventsCents": 5,
-      "restCallCents": 0.1
+      "observabilityPer1kEventsCents": 5
     }
   }
 }
@@ -850,6 +849,6 @@ Workspace-wide fair-use caps (BYOK sessions per month, profile count, router cou
 ## What's not on this API
 
 - **Opening a CDP session.** Use `wss://cdp.browsergateway.io/v1/connect?token=...` with a **router key**, not a bearer.
-- **One-shot browser actions** (screenshot / content / scrape). Those live on the [Cloud Data API](/cloud-data-api) at `cdp.browsergateway.io/v1/*` and draw from your wallet at $0.001 per call.
+- **One-shot browser actions** (screenshot / content / scrape). Those live on the [Cloud Data API](/cloud-data-api) at `cdp.browsergateway.io/v1/*` and each successful call counts as one BYOK session against the 10,000/mo ceiling.
 - **Self-hosted gateway management.** That's `http://your-host:9500/v1/*` with `BG_TOKEN`. See [Gateway REST API](/rest-api).
 - **Admin operations** (workspace provisioning, D1 access, etc.). Internal only.

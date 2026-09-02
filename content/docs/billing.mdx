@@ -7,7 +7,7 @@ Applies to `app.browsergateway.com` (cloud). The OSS `browser-gateway` npm packa
 
 ## The model in one paragraph
 
-No subscriptions. You start free. Everything that costs us real money (session recording, observability broadcast, BYOK usage above the ceiling) draws from your wallet at a published per-unit rate. When you want more, you top up. The amount you top up is exactly the amount added to your wallet: we absorb the card processing cost. Our revenue comes from margin on the metered features you use. Your browser provider bill (Browserless, Steel, Browserbase, Cloudflare Browser Rendering, or your own runtime) is separate.
+No subscriptions. You start free. Everything that costs us real money (session recording, observability broadcast, BYOK usage above the monthly ceiling) draws from your wallet at a published per-unit rate. When you want more, you top up. The amount you top up is exactly the amount added to your wallet: we absorb the card processing cost. Our revenue comes from margin on the metered features you use. Your browser provider bill (Browserless, Steel, Browserbase, Cloudflare Browser Rendering, or your own runtime) is separate.
 
 ## Account states
 
@@ -23,14 +23,14 @@ You do NOT need to be on a specific "plan" to use the product. Every account get
 
 Free without any wallet balance:
 
-- **BYOK routing**: 100,000 sessions per month included on your own browser providers.
+- **BYOK routing**: 10,000 sessions per month included on your own browser providers.
+- **REST API calls** (screenshot / content / scrape) count against the same 10,000-session ceiling.
 - **Bandwidth**: unlimited, no meter.
 - **All routing strategies**: priority-chain, round-robin, least-connections, weighted, latency-optimized.
 - **Multi-provider failover**.
 - **Live playground**.
 - **Up to 100 saved profiles**, 10 MB per profile, 500 MB total per workspace.
 - **60-day session log retention**.
-- **100 sessions per day** rate limit.
 
 A zero-balance wallet does not unlock session recording, observability broadcast to external tools, or the account REST API.
 
@@ -40,10 +40,8 @@ Anything below requires wallet balance greater than zero. Charges draw at sessio
 
 - **Session recording** at `$0.007` per minute of encoded video, drawn from wallet.
 - **Observability broadcast** at `$0.05` per 1,000 events, drawn from wallet.
-- **[Data API](/cloud-data-api)** at `$0.001` per successful call (screenshot / content / scrape).
-- **10,000 sessions per day** rate limit (up from 100).
 - **[Cloud REST API](/cloud-rest-api)** with a raised daily cap (100,000 calls/day up from 5,000).
-- BYOK sessions above the 100k monthly ceiling at `$0.0005` per session, drawn from wallet.
+- **BYOK sessions above the 10,000/mo ceiling** at `$0.0005` per session, drawn from wallet. REST API calls count as sessions and share this ceiling.
 
 ## What Enterprise adds
 
@@ -61,11 +59,10 @@ Enterprise is a contract, not a self-serve plan:
 
 | Item | Rate |
 |---|---|
-| BYOK routing | Free up to 100,000 sessions/mo, `$0.0005`/session above |
+| BYOK routing (CDP + REST calls combined) | Free up to 10,000 sessions/mo, `$0.0005`/session above |
 | Bandwidth | Free, unlimited |
 | Session recording | `$0.007` per minute of encoded video |
 | Observability broadcast | `$0.05` per 1,000 events |
-| Data API (screenshot / content / scrape) | `$0.001` per successful call |
 | Wallet top-up fee | None. You pay what you top up. |
 | Minimum top-up | `$5` |
 | Maximum top-up | `$25,000` per transaction |
@@ -92,7 +89,7 @@ Flat for all accounts. Enterprise contracts can extend.
 ## When your wallet hits zero
 
 - Recording and observability broadcast requests return HTTP 402 at CDP connect time.
-- BYOK routing continues free below the 100k ceiling.
+- BYOK routing continues free below the 10,000/mo ceiling.
 - BYOK routing above the ceiling returns HTTP 402 until you top up.
 - All other free features stay available.
 

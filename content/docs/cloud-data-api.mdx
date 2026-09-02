@@ -13,7 +13,7 @@ Three HTTPS endpoints on `cdp.browsergateway.io` that return page data directly,
 | `POST /v1/content` | JSON with page content in one or more formats | 10 MB |
 | `POST /v1/scrape` | JSON with CSS-selector matches, optional formats and screenshot | 5 MB |
 
-Every successful call draws `$0.001` from your workspace wallet. Errors (4xx and 5xx responses) never charge. Free-tier workspaces receive HTTP 402 with a link to add credits.
+Every successful call counts as one BYOK session against your monthly ceiling (10,000 sessions per month, free). Errors (4xx and 5xx responses) never count. Above the ceiling each session drains `$0.0005` from wallet.
 
 This is a distinct surface from two others on the platform:
 
@@ -48,18 +48,18 @@ The router key is the same one you paste into Puppeteer or Playwright for CDP co
 
 ## Billing
 
-Each successful call is $0.001 (0.1 cent). Wallet balance must be above zero when the request arrives. Failure modes:
+Every successful call = one BYOK session. First 10,000 sessions per month are free across your workspace (CDP + Data API combined). Overage draws `$0.0005` per session from wallet.
 
-| Response | Meaning | Wallet charged? |
+| Response | Meaning | Counts as session? |
 |---|---|---|
-| 200 | Success | Yes, $0.001 |
+| 200 | Success | Yes |
 | 400 | Validation error or provider not configured | No |
-| 402 | Insufficient wallet balance | No |
+| 402 | Over ceiling, wallet empty | No — call rejected before browser spawn |
 | 408 | 30-second wall-clock timeout | No |
 | 413 | Response body exceeded the endpoint cap | No |
 | 503 | No provider available (all in cooldown or at capacity) | No |
 
-Data API calls do **not** count against the 100 000 free BYOK sessions per month. They are a separately-priced product, similar to session recording and observability broadcast.
+Data API calls share the same monthly ceiling as `/v1/connect` CDP sessions. Pick whichever interface fits your code — the meter treats them identically.
 
 ## /v1/screenshot
 
