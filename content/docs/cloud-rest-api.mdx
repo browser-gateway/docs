@@ -83,6 +83,28 @@ X-RateLimit-Reset: 1735689600
 | `limit_reached` | 409 | Fair-use ceiling hit (see plan limits) |
 | `rate_limited` | 429 | Per-day bearer cap exceeded |
 
+## Data-plane REST timeouts
+
+The one-shot data-plane endpoints (`POST /v1/screenshot`, `POST /v1/content`, `POST /v1/scrape` on `https://cdp.browsergateway.io`) accept a `timeout` field in the request body:
+
+| Field | Default | Min | Max | Controls |
+|---|---|---|---|---|
+| `timeout` | `30000` | `1000` | `120000` | Per-navigation timeout in milliseconds. Also drives the outer request wall-clock. |
+| `waitForSelector` | none | | | CSS selector to wait for after navigation. |
+| `waitForTimeout` | none | `0` | `30000` | Extra milliseconds to wait after load. |
+| `retries` | `2` | `0` | `5` | Retry attempts on navigation failure. |
+
+The router derives the outer request budget as `timeout + 20000ms` (20 seconds of slack for provider connect + response serialization). Set `timeout` higher for slow external upstreams:
+
+```bash
+curl -X POST "https://cdp.browsergateway.io/v1/screenshot" \
+  -H "Authorization: Bearer $BG_ROUTER_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"url":"https://example.com","timeout":90000}'
+```
+
+Cloudflare Browser Rendering (Kitesurf) and other beta providers can be 5-25× slower than mainstream cloud browsers on complex pages. Raise `timeout` up to the 120-second max if you see 408 responses.
+
 ## Endpoints
 
 Grouped by resource. Every path is under `https://app-api.browsergateway.com`.
