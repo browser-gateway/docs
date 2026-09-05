@@ -7,7 +7,7 @@ import type { Metadata, Viewport } from "next";
 import { source } from "@/lib/source";
 
 const SITE_URL = "https://docs.browsergateway.com";
-const SITE_NAME = "browser-gateway docs";
+const SITE_NAME = "BrowserGateway docs";
 const DESCRIPTION =
   "OpenRouter for cloud browsers. One endpoint, any provider: failover, persistent profiles, session replay, REST API, MCP server, dashboard.";
 
@@ -15,10 +15,10 @@ export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
   title: {
     default: SITE_NAME,
-    template: "%s | browser-gateway docs",
+    template: "%s | BrowserGateway docs",
   },
   description: DESCRIPTION,
-  applicationName: "browser-gateway",
+  applicationName: "BrowserGateway",
   keywords: [
     "browser automation",
     "puppeteer",
@@ -36,14 +36,14 @@ export const metadata: Metadata = {
     "mcp server",
     "browser routing",
   ],
-  authors: [{ name: "browser-gateway" }],
+  authors: [{ name: "BrowserGateway" }],
   openGraph: {
     type: "website",
     siteName: SITE_NAME,
     title: SITE_NAME,
     description: DESCRIPTION,
     url: SITE_URL,
-    images: [{ url: "/og.png", width: 1200, height: 630, alt: "browser-gateway" }],
+    images: [{ url: "/og.png", width: 1200, height: 630, alt: "BrowserGateway" }],
   },
   twitter: {
     card: "summary_large_image",
@@ -94,11 +94,28 @@ export default function Layout({ children }: { children: ReactNode }) {
                     className="rounded-sm"
                     priority
                   />
-                  <span>browser-gateway</span>
+                  <span>BrowserGateway</span>
                 </span>
               ),
               url: "/",
             }}
+            links={[
+              {
+                text: "Home",
+                url: "https://browsergateway.com",
+                external: true,
+              },
+              {
+                text: "Pricing",
+                url: "https://browsergateway.com/pricing/",
+                external: true,
+              },
+              {
+                text: "Dashboard",
+                url: "https://app.browsergateway.com",
+                external: true,
+              },
+            ]}
             githubUrl="https://github.com/browser-gateway/browser-gateway"
           >
             {children}
