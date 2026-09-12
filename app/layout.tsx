@@ -115,6 +115,11 @@ export default function Layout({ children }: { children: ReactNode }) {
                 url: "https://app.browsergateway.com",
                 external: true,
               },
+              {
+                text: "Discord",
+                url: "https://discord.gg/TM8Yuvukp",
+                external: true,
+              },
             ]}
             githubUrl="https://github.com/browser-gateway/browser-gateway"
           >
