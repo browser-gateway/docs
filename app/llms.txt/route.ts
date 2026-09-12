@@ -15,7 +15,7 @@ export function GET() {
   const rootTitle = rootPage?.data.title ?? "browser-gateway";
   const rootDescription =
     rootPage?.data.description ??
-    "OpenRouter for cloud browsers. Route Puppeteer, Playwright, or AI agent code across any CDP provider.";
+    "The open router for cloud browsers. Route Puppeteer, Playwright, or AI agent code across any CDP provider.";
 
   const lines: string[] = [];
   lines.push(`# ${rootTitle}`);
