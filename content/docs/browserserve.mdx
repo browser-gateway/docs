@@ -71,10 +71,28 @@ If you run browserserve behind the gateway, the gateway manages profiles for you
 browserserve detects what the host allows and reports it honestly. It resolves three independent tiers, and `browserserve doctor` and `GET /pressure` print all three:
 
 - **Kill.** `cgroup.kill` (a one-syscall tree kill) on a delegated Linux host, otherwise a process-group kill.
-- **Memory cap.** A kernel-enforced `memory.max` per session on a delegated host, otherwise a polled RSS soft cap.
-- **Profile directory.** How each session's directory is provisioned copy-on-write: `overlay`, `reflink`, `tmpfs-copy`, or `plain-copy`, best first. A plain copy is a correctness-equivalent fallback; it behaves identically and is only less efficient.
+- **Resource limits.** Kernel-enforced per-session limits on a delegated host: memory (`session.memoryMaxMb`), CPU (`session.cpuPercent`) and process count (`session.pidsMax`). Elsewhere only a polled RSS soft cap for memory applies. At startup browserserve prints which of the three the host can enforce.
+- **Profile directory.** How each session's directory is provisioned: `reflink` (copy-on-write, on btrfs or xfs) or `plain-copy` (everywhere else). A plain copy behaves identically and is only less efficient.
 
-The isolation contract (fresh browser, fresh profile directory, wiped on disconnect) holds on every tier. The kernel tier needs a writable, delegated cgroup v2 subtree (for example systemd `Delegate=yes`); in most containers the portable tier applies.
+The isolation contract (fresh browser, fresh profile directory, wiped on disconnect) holds on every tier.
+
+### Per-session limits (slots)
+
+From 0.1.11 each browser is started inside its own cgroup, so the limits cover every process of that browser: the main process, the GPU process and every tab. Together the three limits define a fixed-size slot per session. One heavy session then cannot slow its neighbours, and a host always fits the same number of sessions.
+
+What happens when a session reaches a limit:
+
+- **Memory.** The kernel stops the tab that used the memory. The rest of that session and all other sessions keep running.
+- **CPU.** The session is slowed to its share. Other sessions are unaffected.
+- **Process count.** New processes and threads are refused inside that session only.
+
+Kernel-enforced limits need a writable, delegated cgroup v2 subtree:
+
+- **Docker (Engine 28 or newer).** Run with `--cgroupns=private --security-opt writable-cgroups=true`. Mounting the host's `/sys/fs/cgroup` into the container does not work on most Linux hosts.
+- **systemd service.** Set `Delegate=yes` on the unit.
+- **Managed platforms (Cloud Run, Railway and similar).** The cgroup tree is read-only, so the portable tier applies. Size the instance instead, one session per instance if you need hard limits.
+
+All three limits are off by default.
 
 ### Capacity
 
@@ -116,6 +134,8 @@ Configuration is a YAML file (`browserserve.yml` in the working directory, or `B
 | `pool.maxQueue` | `10` | Clients allowed to wait for a slot before rejection. |
 | `pool.queueTimeoutMs` | `30000` | How long a queued client waits before a 503. |
 | `session.memoryMaxMb` | `0` | Per-session memory cap in MiB (kernel-enforced on a delegated host, RSS soft cap otherwise; `0` = disabled, let the container's own memory limit be the OOM boundary). Recommended sizing when enabled: `container_memory_mb / maxSessions × 0.8`. |
+| `session.cpuPercent` | `0` | Per-session CPU cap as a percentage of one core (`100` = one core, `150` = one and a half). Kernel-enforced on a delegated host only; `0` = disabled. |
+| `session.pidsMax` | `0` | Per-session cap on processes plus threads. Kernel-enforced on a delegated host only; `0` = disabled. A browser session typically uses 120 to 160. |
 | `session.idleTimeoutMs` | `0` | Kill a session whose client has not sent a CDP message in this many ms; `0` = disabled. Recommended starting value: `300000` (5 min). |
 | `session.killGraceMs` | `5000` | SIGTERM-to-SIGKILL grace during teardown. |
 | `pressure.maxCpuPercent` | `95` | Reject new sessions above this host CPU usage. |
@@ -147,6 +167,8 @@ Every tuning knob has an environment-variable equivalent, so container and serve
 | `BROWSERSERVE_QUEUE_TIMEOUT_MS` | `pool.queueTimeoutMs` | Milliseconds a queued client waits before 503. |
 | `BROWSERSERVE_IDLE_TIMEOUT_MS` | `session.idleTimeoutMs` | Kill client-idle sessions after N ms. `0` disables. |
 | `BROWSERSERVE_MEMORY_MAX_MB` | `session.memoryMaxMb` | Per-session memory cap in MiB. `0` disables. |
+| `BROWSERSERVE_CPU_PERCENT` | `session.cpuPercent` | Per-session CPU cap, percent of one core. `0` disables. |
+| `BROWSERSERVE_PIDS_MAX` | `session.pidsMax` | Per-session cap on processes plus threads. `0` disables. |
 | `BROWSERSERVE_NO_SANDBOX` | `chrome.noSandbox` | Opt out of the Chromium sandbox. Boolean. |
 | `BROWSERSERVE_REQUIRE_SANDBOX` | `chrome.requireSandbox` | Refuse to fall back if the host blocks the sandbox. |
 
@@ -154,9 +176,11 @@ Setting both `noSandbox` and `requireSandbox` is a startup error.
 
 ### Sizing and capacity
 
+When a session is refused, the server answers 503 with a reason (`pressure`, `queue_full`, `queue_timeout`, `draining`, `launch_failed`, `calibrating`) and logs one line with the same reason. New sessions are refused above 95% CPU or memory so that running sessions are not slowed down; clients should retry or use another instance.
+
 browserserve auto-derives `pool.maxSessions` from the host's real limits (cgroup memory / pids / cpus) and a measured browser footprint at boot. On an 8 GB, 8 vCPU container it typically resolves to 12-16 sessions, bound by CPU or PIDs. Override via `pool.maxSessions` or `BROWSERSERVE_MAX_SESSIONS`.
 
-The per-session memory cap (`session.memoryMaxMb`) is disabled by default. A Chrome instance including its renderer, GPU, network, and storage processes typically uses 1-2 GB across the process tree even for a single tab, so a cap that seems generous can be tight in practice. Recommended pattern:
+The per-session memory cap (`session.memoryMaxMb`) is disabled by default. In our own tests on 4-core, 16 GB cloud machines a session browsing text-heavy pages used about 0.5 to 0.7 GB across its whole process tree, and ad-heavy news sites used more, so a cap that seems generous can be tight in practice. A breach stops the offending tab, not the session. Recommended pattern:
 
 - Leave `memoryMaxMb: 0` (default). The container's own memory limit (Docker `--memory`, K8s `resources.limits.memory`, Railway service memory) is the OOM boundary.
 - If you want a per-session ceiling for fair-share reasons, set it via the sizing math: `container_memory_mb / maxSessions × 0.8`. On an 8 GB container with 16 max sessions, that's ~400 MB per session, which is too tight for anything but a single-tab scrape. On 4 max sessions it's 1.6 GB, which fits most workloads.
