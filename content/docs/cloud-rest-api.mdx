@@ -239,8 +239,8 @@ Request:
 ```
 
 `slug` must be lowercase kebab, unique within the router.
-`maxConcurrent` — leave `null` for unlimited (upstream is authoritative on its own capacity). Browserserve providers self-advertise via `Browserserve-MaxConcurrent`.
-`profile` — set to a profile slug to hard-pin this provider to that profile (required for external providers if you want write-back).
+`maxConcurrent`: leave `null` for unlimited (upstream is authoritative on its own capacity). Browserserve providers self-advertise via `Browserserve-MaxConcurrent`.
+`profile`: set to a profile slug to hard-pin this provider to that profile (required for external providers if you want write-back).
 
 Response `201 Created`:
 
@@ -627,7 +627,7 @@ Response `201 Created`:
 }
 ```
 
-Store `secret` immediately — used to verify HMAC signatures on delivery. Never returned again.
+Store `secret` immediately. It is used to verify HMAC signatures on delivery. Never returned again.
 
 #### PUT /v1/webhooks/:id
 
@@ -783,7 +783,7 @@ Single transaction detail. Useful for reconciling a Paddle event ID.
 
 #### GET /v1/access-tokens
 
-Your bearer tokens (metadata only — plaintext is never returned).
+Your bearer tokens (metadata only; plaintext is never returned).
 
 ```json
 {
@@ -817,14 +817,14 @@ A short list of high-risk endpoints reject bearer tokens with HTTP 403 and requi
 
 Cookie-only paths:
 
-- `POST /v1/access-tokens` — create a new bearer token
-- `POST /v1/access-tokens/:id/rotate` — rotate a bearer token
-- `POST /v1/access-tokens/:id/revoke` — revoke a bearer token
-- `GET /v1/api-keys/current/plaintext` — fetch the current router-key plaintext (used by the dashboard's autofill)
-- `DELETE /v1/workspaces/current` — delete the workspace
-- `DELETE /v1/workspaces/current/members/:userId` — remove a member
-- `POST /v1/workspaces/current/invitations` — invite a member
-- `POST /v1/billing/checkout` — start a wallet top-up
+- `POST /v1/access-tokens`: create a new bearer token
+- `POST /v1/access-tokens/:id/rotate`: rotate a bearer token
+- `POST /v1/access-tokens/:id/revoke`: revoke a bearer token
+- `GET /v1/api-keys/current/plaintext`: fetch the current router-key plaintext (used by the dashboard's autofill)
+- `DELETE /v1/workspaces/current`: delete the workspace
+- `DELETE /v1/workspaces/current/members/:userId`: remove a member
+- `POST /v1/workspaces/current/invitations`: invite a member
+- `POST /v1/billing/checkout`: start a wallet top-up
 
 The reason: a leaked bearer must not be able to escalate its own permissions, drain the wallet, or remove people. These flows require you to be present at the dashboard.
 

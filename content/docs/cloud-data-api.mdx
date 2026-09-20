@@ -54,12 +54,12 @@ Every successful call = one BYOK session. First 10,000 sessions per month are fr
 |---|---|---|
 | 200 | Success | Yes |
 | 400 | Validation error or provider not configured | No |
-| 402 | Over ceiling, wallet empty | No — call rejected before browser spawn |
+| 402 | Over ceiling, wallet empty | No. Call rejected before browser spawn. |
 | 408 | 30-second wall-clock timeout | No |
 | 413 | Response body exceeded the endpoint cap | No |
 | 503 | No provider available (all in cooldown or at capacity) | No |
 
-Data API calls share the same monthly ceiling as `/v1/connect` CDP sessions. Pick whichever interface fits your code — the meter treats them identically.
+Data API calls share the same monthly ceiling as `/v1/connect` CDP sessions. Pick whichever interface fits your code; the meter treats them identically.
 
 ## /v1/screenshot
 
