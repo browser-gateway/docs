@@ -8,6 +8,8 @@ description: "CRUD for provider entries in gateway.yml."
 
 Add, list, update, delete, and test browser provider entries. Adding via API writes to `gateway.yml` on disk atomically.
 
+`GET /v1/providers` masks credentials before it answers: any secret-looking query parameter in a provider URL (`token`, `apiKey`, `key`, `secret`, `password` and friends), any username or password embedded in the URL, and the value of any header whose name carries a credential (such as `Authorization`) all come back as `***`. Sending a masked value straight back in a `PUT` keeps the stored secret, so a dashboard edit form can round-trip its own view safely.
+
 ## Endpoints
 
 | Method | Path | Description |
@@ -19,6 +21,7 @@ Add, list, update, delete, and test browser provider entries. Adding via API wri
 | `GET` | `/v1/providers/:id/capabilities` |  |
 | `POST` | `/v1/providers/:id/capabilities/revalidate` |  |
 | `POST` | `/v1/providers/:id/test` |  |
+| `POST` | `/v1/providers/probe` |  |
 
 ## Source
 

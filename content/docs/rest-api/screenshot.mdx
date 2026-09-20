@@ -6,7 +6,7 @@ description: "One-shot screenshot of any URL, no client code required."
 {/* AUTO-GENERATED. Do not edit. Regenerate with `npm run docs:gen-rest` in the code repo. */}
 {/* Edit descriptions in scripts/gen-rest-docs.ts (RESOURCE_HELP + JSDoc above each route). */}
 
-Sends a page load + screenshot request to a browser session from the pool. Supports viewport, format (png/jpeg), clip regions, full-page, and profile injection.
+Sends a page load + screenshot request to a browser session from the pool. Supports viewport, format (png/jpeg), clip regions, full-page, and profile injection. The `url` must be an `http` or `https` address on a public host. Addresses on the same machine or on a private network are refused unless the hostname is listed under `rest.allowedPrivateHosts` in `gateway.yml`.
 
 ## Endpoints
 

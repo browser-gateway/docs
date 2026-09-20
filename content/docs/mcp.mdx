@@ -86,6 +86,60 @@ Session 3 → browser-gateway mcp → Chrome C
 
 Each process auto-detects an available port. No configuration needed.
 
+## Over HTTP
+
+`browser-gateway mcp` talks to the agent over stdio, which means the agent starts the
+gateway itself as a child process. A gateway started with `browser-gateway serve` also
+exposes the same tools over HTTP at `POST /mcp`, so several agents on different
+machines can share one long-running gateway.
+
+```
+http://localhost:9500/mcp
+```
+
+If `BG_TOKEN` is set, this endpoint accepts either `Authorization: Bearer <BG_TOKEN>`
+or a `?token=` query parameter.
+
+### Reaching /mcp from another machine
+
+When `BG_TOKEN` is not set, `/mcp` answers only requests whose `Host` header is a
+loopback name: `localhost`, `127.0.0.1`, `::1`, or `0.0.0.0`, with or without a port.
+A request arriving under any other hostname gets HTTP 403 and this body:
+
+```json
+{
+  "error": "Forbidden host",
+  "message": "Set BG_TOKEN to reach /mcp on a non-loopback host, or add the host to BG_ALLOWED_HOSTS."
+}
+```
+
+Most agents surface this as a connection or handshake failure rather than the message
+itself, so a 403 on first connect from a remote machine or from behind a reverse proxy
+is usually this check.
+
+Two ways to fix it:
+
+- **Set `BG_TOKEN`.** The hostname check does not run at all once a token is set, and
+  the endpoint is authenticated instead. This is the option to pick for anything
+  reachable beyond your own machine.
+- **Or list the hostname in `BG_ALLOWED_HOSTS`**, comma-separated, if you want to keep
+  the gateway tokenless. The value is matched against the `Host` header with the port
+  removed, so `BG_ALLOWED_HOSTS=gateway.internal` covers `gateway.internal:9500`.
+
+```bash
+BG_ALLOWED_HOSTS=gateway.internal browser-gateway serve
+```
+
+Remember that a tokenless gateway also binds to `127.0.0.1` by default, so reaching it
+from another machine takes `HOST=0.0.0.0` as well. See
+[Configuration](/configuration#which-interface-the-gateway-listens-on).
+
+Separately, if the request carries a browser `Origin` header that is neither the
+gateway's own address nor listed in `BG_ALLOWED_ORIGINS`, `/mcp` answers HTTP 403 with
+`{"error": "Forbidden origin"}`. This check runs whether or not `BG_TOKEN` is set.
+Agents connecting from a terminal do not send `Origin`, so it only applies to browser
+based clients.
+
 ## Using with Remote Providers
 
 For production workloads, point the MCP at a gateway with remote providers:

@@ -93,11 +93,26 @@ npx browser-gateway serve --config ./gateway.yml
 | `BG_DATA_DIR` | Where the gateway stores config, profiles, encryption key | `/data` (Docker), `~/.browser-gateway` (otherwise) |
 | `BG_CONFIG_PATH` | Path to gateway.yml | `$BG_DATA_DIR/gateway.yml` |
 | `BG_ALLOWED_ORIGINS` | Cross-origin allowlist (comma-separated) | Same-origin only |
+| `BG_ALLOWED_HOSTS` | Extra `Host` header values accepted on `/mcp` when `BG_TOKEN` is unset (comma-separated) | Loopback only |
 | `PORT` | Server port (12-factor convention) | 9500 |
-| `HOST` | Bind interface | `0.0.0.0` |
+| `HOST` | Bind interface | `0.0.0.0` when `BG_TOKEN` is set, `127.0.0.1` when it is not |
 | `LOG_LEVEL` | `debug` / `info` / `warn` / `error` | From `gateway.yml` (default `info`) |
 | `HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY` | Outbound proxy (honored by Node fetch) | None |
 | `TZ` | Timezone for log timestamps | System default |
+
+### Which interface the gateway listens on
+
+An interface is the network address the gateway answers on. `0.0.0.0` means every
+address the machine has, so other machines on the network can reach it.
+`127.0.0.1` (also called loopback) means only programs on the same machine can.
+
+If `BG_TOKEN` is not set, the `/v1/*` routes have no authentication, so the
+gateway binds to `127.0.0.1` and stays private to the machine it runs on. Set
+`BG_TOKEN` and it binds to `0.0.0.0` instead. Setting `HOST` yourself always wins,
+so `HOST=0.0.0.0` still opens an unauthenticated gateway if that is what you want.
+
+If the gateway used to be reachable from another machine and now is not, set
+`BG_TOKEN` (recommended) or set `HOST=0.0.0.0` explicitly.
 
 ## Graceful Shutdown
 

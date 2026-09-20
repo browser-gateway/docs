@@ -71,8 +71,9 @@ Secrets in the config use `${ENV_VAR}` references. Pass the actual values as env
 | `BG_DATA_DIR` | Where the gateway stores config, profiles, and the encryption key. Default `/data`. |
 | `BG_CONFIG_PATH` | Path to gateway.yml. Default `$BG_DATA_DIR/gateway.yml`. |
 | `BG_ALLOWED_ORIGINS` | Comma-separated CORS allowlist. Default: same-origin only. |
+| `BG_ALLOWED_HOSTS` | Comma-separated list of extra `Host` header values accepted on `/mcp` when `BG_TOKEN` is unset. Default: loopback only. |
 | `PORT` | Server port. Default 9500. 12-factor convention used by Railway, Render, Fly, Heroku. |
-| `HOST` | Bind interface. Default `0.0.0.0`. |
+| `HOST` | Bind interface. The image sets this to `0.0.0.0`, so a container listens on every interface whether or not `BG_TOKEN` is set. |
 | `LOG_LEVEL` | `debug` / `info` / `warn` / `error`. Overrides `gateway.yml`. |
 | `HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY` | Outbound proxy. Honored by Node's built-in fetch. |
 | `TZ` | Timezone for log timestamps. |

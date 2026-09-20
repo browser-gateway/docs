@@ -196,6 +196,39 @@ providers:
 
 Headers are sent on the outbound WebSocket handshake to the upstream. Values interpolate from environment variables. Limits: 20 headers max, key up to 80 chars, value up to 4 KB. See [Configuration → Custom headers](/configuration#custom-headers) for merge order.
 
+## How Provider Credentials Are Shown Back To You
+
+Provider URLs and headers usually carry a key of some kind. When you list providers
+over the API or view them in the dashboard, those values come back masked as `***`,
+so nothing that can open a browser session is echoed out of the gateway. What gets
+masked:
+
+- Query parameters in a provider URL whose name looks like a credential: `token`,
+  `apiKey`, `api_key`, `key`, `secret`, `password`, `access_token`, `jwt`, `sig` and
+  similar.
+- A username or password written into the URL itself, as in `wss://user:pass@host`.
+- The value of any header whose name carries a credential, such as `Authorization`,
+  `X-Api-Key` or `Cookie`.
+
+```json
+{
+  "providers": [
+    {
+      "id": "cloud-primary",
+      "url": "wss://provider.example.com/?token=***",
+      "headers": { "Authorization": "***", "X-Client": "browser-gateway" },
+      "maxConcurrent": 5,
+      "priority": 1
+    }
+  ]
+}
+```
+
+The real values stay in `gateway.yml` and are still sent to the provider. If you send
+a masked value straight back in a `PUT /v1/providers/:id`, the gateway keeps what it
+already had rather than storing `***`, so editing one field of a provider in the
+dashboard does not wipe the others. To change a credential, send the new value.
+
 ## Profiles And Providers
 
 Whether a provider can safely carry a profile depends on how the underlying browser is isolated between sessions. The self-hosted runtime gives every session a fresh isolated Chrome and can serve any profile with no pinning. External CDP providers must pin one profile per slot with `profile:`. `multiProfile: true` on external providers is rejected at add-time.

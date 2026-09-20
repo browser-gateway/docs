@@ -69,6 +69,11 @@ dashboard:
 
 logging:
   level: info                          # debug | info | warn | error (default: info)
+
+# One-shot REST endpoints (/v1/screenshot, /v1/content, /v1/scrape)
+rest:
+  allowedPrivateHosts: []              # Hostnames these endpoints may reach even though they
+                                       # point at a private address (default: none)
 ```
 
 ## Providers
@@ -163,14 +168,49 @@ providers:
 
 `multiProfile: true` tells the gateway this provider can serve multiple profiles concurrently on the same slot. This is only safe on the [self-hosted runtime](/browserserve), where every session gets a fresh isolated Chrome by construction.
 
-Setting `multiProfile: true` on any other provider is **rejected at add-time**:
+Setting `multiProfile: true` on any other provider is rejected two ways:
 
-```
-POST /v1/providers { multiProfile: true, url: "wss://external.example.com/..." }
-→ HTTP 400 "multiProfile is only supported on the self-hosted runtime"
-```
+- **When added over the API**, the gateway probes the upstream first. If it answers but
+  is not the self-hosted runtime, `POST /v1/providers` returns HTTP 400 with
+  `"multiProfile:true is only valid on browserserve providers"`. If it does not answer
+  the probe at all, the request is still refused, with a separate error,
+  `"Cannot verify multiProfile:true, the upstream did not answer the probe"`, and the
+  probe failure in `details`. Either way nothing is written to `gateway.yml`.
+- **When already in `gateway.yml` at startup**, the gateway probes each provider, then
+  clears the flag to `false` on any that is not the self-hosted runtime and logs a
+  config error naming the provider. The gateway still starts, and that provider runs as
+  if the flag had never been set.
 
 Configs loaded from disk with the same flag on a non-runtime provider are logged as an error at boot and the flag is ignored at runtime.
+
+## One-Shot REST Endpoints
+
+`POST /v1/screenshot`, `POST /v1/content` and `POST /v1/scrape` take a `url` and load
+it in a browser for you. Because the gateway is the one fetching the page, the `url`
+is restricted:
+
+- It must start with `http://` or `https://`. Other schemes, including `file:`, are refused.
+- Its host must be a public address. Addresses that only mean something inside your
+  own network are refused: `localhost` and `127.0.0.1`, the `10.x`, `172.16-31.x` and
+  `192.168.x` ranges, the `169.254.x` range used for cloud metadata services, and the
+  `.local` and `.internal` name suffixes.
+- Hostnames are looked up, and every address they resolve to is checked the same way.
+  A public name that points at a private address is refused too.
+
+A refused request comes back as HTTP 400 with the host named in the message.
+
+To screenshot something on your own network, such as a staging site, list its hostname:
+
+```yaml
+rest:
+  allowedPrivateHosts:
+    - staging.internal
+    - 127.0.0.1
+```
+
+Matching is on the hostname exactly as written in the request, lowercased. A listed
+hostname skips both the literal-address check and the lookup check. The list is empty
+by default, so nothing private is reachable until you add it.
 
 ## Deep Dives
 
@@ -213,11 +253,26 @@ These environment variables can be set alongside or instead of a config file:
 | `BG_DATA_DIR` | Where the gateway stores config, profiles, and the encryption key | `/data` (Docker), `~/.browser-gateway` (otherwise) |
 | `BG_CONFIG_PATH` | Path to gateway.yml | `$BG_DATA_DIR/gateway.yml` |
 | `BG_ALLOWED_ORIGINS` | Cross-origin allowlist (comma-separated) | Same-origin only |
+| `BG_ALLOWED_HOSTS` | Extra `Host` header values accepted on `/mcp` when `BG_TOKEN` is unset (comma-separated) | Loopback only |
 | `PORT` | Server port (12-factor convention used by Railway, Render, Fly, Heroku) | 9500 |
-| `HOST` | Bind interface (set `127.0.0.1` for loopback-only) | `0.0.0.0` |
+| `HOST` | Bind interface. Setting it always wins over the default below. | `0.0.0.0` when `BG_TOKEN` is set, `127.0.0.1` when it is not |
 | `LOG_LEVEL` | `debug` / `info` / `warn` / `error` (overrides `gateway.yml`) | `info` |
 | `HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY` | Outbound proxy (honored by Node's built-in fetch) | None |
 | `TZ` | Timezone for log timestamps | System default |
+
+### Which interface the gateway listens on
+
+An interface is the network address the gateway answers on. `0.0.0.0` means every
+address the machine has, so other machines on the network can reach it.
+`127.0.0.1` (also called loopback) means only programs on the same machine can.
+
+If `BG_TOKEN` is not set, the `/v1/*` routes have no authentication, so the
+gateway binds to `127.0.0.1` and stays private to the machine it runs on. Set
+`BG_TOKEN` and it binds to `0.0.0.0` instead. Setting `HOST` yourself always wins,
+so `HOST=0.0.0.0` still opens an unauthenticated gateway if that is what you want.
+
+If the gateway used to be reachable from another machine and now is not, set
+`BG_TOKEN` (recommended) or set `HOST=0.0.0.0` explicitly.
 
 ### .env File
 
