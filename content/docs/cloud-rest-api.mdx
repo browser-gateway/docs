@@ -820,6 +820,7 @@ Cookie-only paths:
 - `POST /v1/access-tokens`: create a new bearer token
 - `POST /v1/access-tokens/:id/rotate`: rotate a bearer token
 - `POST /v1/access-tokens/:id/revoke`: revoke a bearer token
+- `DELETE /v1/access-tokens/:id`: delete a bearer token
 - `GET /v1/api-keys/current/plaintext`: fetch the current router-key plaintext (used by the dashboard's autofill)
 - `DELETE /v1/workspaces/current`: delete the workspace
 - `DELETE /v1/workspaces/current/members/:userId`: remove a member
@@ -828,11 +829,13 @@ Cookie-only paths:
 
 The reason: a leaked bearer must not be able to escalate its own permissions, drain the wallet, or remove people. These flows require you to be present at the dashboard.
 
-## Rotation grace
+## Rotating and deleting access tokens
 
-Rotating a token (via the dashboard) mints a new token immediately and marks the old one to expire 24 hours later. During the grace window BOTH tokens work, so you can swap the value in your config without downtime. After 24 hours the old token returns 401.
+Rotating an access token (via the dashboard) gives the same token a new value. The row keeps its label and creation date, and the old value returns 401 immediately, so update every place that uses it right after rotating.
 
-Same behavior applies to router keys (`POST /v1/api-keys/rotate`).
+Revoking switches a token off but keeps it in the list. Deleting removes it from the list, whether it is active or revoked.
+
+Router keys (`POST /v1/api-keys/rotate`) work differently: the previous key keeps working for 24 hours.
 
 ## End-to-end example
 
