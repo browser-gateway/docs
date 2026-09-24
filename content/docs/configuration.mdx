@@ -58,6 +58,7 @@ providers:
     weight: 1                          # For weighted strategy: higher = more traffic (default: 1)
     profile: my-profile-slug           # Optional. Pin this slot to one profile (see Profiles)
     multiProfile: false                # Only the self-hosted runtime may set this to true
+    enabled: true                      # Optional. false keeps the provider configured but never routes to it
 
 # Optional: get notified when things happen
 webhooks:
@@ -125,6 +126,14 @@ weight: 3    # For weighted strategy only. Higher = more traffic. Default: 1.
 ```
 
 Weights only matter when using the `weighted` strategy. A provider with `weight: 3` gets 3x more traffic than one with `weight: 1`. See [Load Balancing](/operating/load-balancing#weighted) for detailed examples.
+
+### Enabled
+
+```yaml
+enabled: false    # Keep the provider configured but never route to it. Default: on.
+```
+
+A disabled provider is skipped by every strategy, is not health-checked, and a request pinned to it is rejected as if it did not exist. See [Turning A Provider Off](/providers#turning-a-provider-off).
 
 ### Custom headers
 

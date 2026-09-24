@@ -143,6 +143,37 @@ providers:
 
 The gateway tries them in priority order. If the primary is full or down, traffic routes to the next available provider automatically.
 
+## Turning A Provider Off
+
+Take a provider out of rotation without deleting it. Its URL, key and settings stay in `gateway.yml`, so switching it back on restores it exactly as it was.
+
+When to use this: a provider is having an outage, you are over its monthly quota, or you want to test the rest of your setup without it.
+
+```yaml
+providers:
+  primary:
+    url: wss://provider-a.example.com?key=${KEY_A}
+    enabled: false
+```
+
+While a provider is off, the gateway behaves as if it was never added:
+
+- New sessions never go to it, whatever the routing strategy.
+- A request that names it with `?provider=primary` gets the same `400` as a provider that does not exist.
+- It is not health-checked and does not appear in `/v1/status`, the playground or the API page.
+- Sessions that were already running on it finish normally.
+
+It still appears in `GET /v1/providers` with `enabled: false`, and on the dashboard Providers page with a switch to turn it back on. From the API:
+
+```bash
+curl -X PUT http://localhost:9500/v1/providers/primary \
+  -H "Authorization: Bearer $BG_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"enabled": true}'
+```
+
+Omitting `enabled` means the provider is on.
+
 ## Provider Capacity
 
 Every provider has a real concurrency ceiling. Set `maxConcurrent` to the smaller of what the provider actually handles and what you have paid for.
