@@ -1,0 +1,174 @@
+---
+title: "Cloud MCP"
+description: "Connect Claude, ChatGPT, Cursor, Codex and other AI agents to hosted browsers on browsergateway.com, with recording, traces and saved profiles per browser."
+---
+
+The cloud runs an MCP (Model Context Protocol) server for your workspace. Any agent that supports remote MCP servers can connect to it and get real browsers routed through your providers, with the same routing, failover, profiles, recording and billing as a [CDP connection](/cloud-rest-api#what-it-is). Nothing is installed on your machine.
+
+Running the server yourself instead? See [MCP Server](/mcp).
+
+## Address and credentials
+
+| Use | Address | Credential |
+|---|---|---|
+| Coding agents and editors | `https://cdp.browsergateway.io/mcp` | Router key in the header: `Authorization: Bearer bg_...` |
+| Chat apps (Claude, ChatGPT) | `https://cdp.browsergateway.io/mcp/u/bgl_...` | The link itself. No header. |
+
+Both give the same tools on the same router. The router key is the one from the dashboard's **Connect** card. The chat link exists because chat apps accept a url but not a custom header.
+
+The chat link is a credential: anyone who has it can open browsers on your workspace. Copy it from the **Agents** page. **Rotate** replaces it with a new one and the old link stops working immediately.
+
+## Set up your agent
+
+The **Agents** page in the dashboard shows each of these with your key already filled in. The examples below use `bg_YOUR_KEY`.
+
+### Claude Code
+
+```bash
+claude mcp add --transport http --scope user browser-gateway https://cdp.browsergateway.io/mcp \
+  --header "Authorization: Bearer bg_YOUR_KEY"
+```
+
+### Codex
+
+```bash
+export BROWSER_GATEWAY_KEY=bg_YOUR_KEY
+codex mcp add browser-gateway --url https://cdp.browsergateway.io/mcp --bearer-token-env-var BROWSER_GATEWAY_KEY
+```
+
+Add the `export` line to your shell profile so new terminals keep the key.
+
+### Cursor
+
+Use **Install in Cursor** on the Agents page, or add to `~/.cursor/mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "browser-gateway": {
+      "url": "https://cdp.browsergateway.io/mcp",
+      "headers": { "Authorization": "Bearer bg_YOUR_KEY" }
+    }
+  }
+}
+```
+
+### VS Code
+
+Use **Install in VS Code** on the Agents page, or add to `.vscode/mcp.json`:
+
+```json
+{
+  "servers": {
+    "browser-gateway": {
+      "type": "http",
+      "url": "https://cdp.browsergateway.io/mcp",
+      "headers": { "Authorization": "Bearer bg_YOUR_KEY" }
+    }
+  }
+}
+```
+
+### Gemini CLI
+
+```bash
+gemini mcp add --transport http --header "Authorization: Bearer bg_YOUR_KEY" browser-gateway https://cdp.browsergateway.io/mcp
+```
+
+### Windsurf
+
+Add to `~/.codeium/windsurf/mcp_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "browser-gateway": {
+      "serverUrl": "https://cdp.browsergateway.io/mcp",
+      "headers": { "Authorization": "Bearer bg_YOUR_KEY" }
+    }
+  }
+}
+```
+
+### OpenCode
+
+Add to `opencode.json`:
+
+```json
+{
+  "mcp": {
+    "browser-gateway": {
+      "type": "remote",
+      "url": "https://cdp.browsergateway.io/mcp",
+      "enabled": true,
+      "headers": { "Authorization": "Bearer bg_YOUR_KEY" }
+    }
+  }
+}
+```
+
+### Claude (web and desktop)
+
+1. Open Claude's connector settings, select **Add**, then **Add custom connector**.
+2. Name it `browser-gateway` and paste your chat link as the server url. Leave the advanced settings empty.
+3. Select **Add**, then turn it on in a chat from the tools menu.
+
+### ChatGPT
+
+1. In **Settings**, **Apps**, **Advanced settings**, turn on **Developer mode**.
+2. In **Apps**, choose **Create**. Paste your chat link as the MCP server url, choose **No authentication**, then **Scan tools** and **Create**.
+3. In a chat, pick `browser-gateway` from the tools menu.
+
+Custom connectors need a ChatGPT Business, Enterprise or Edu workspace where an admin has turned on Developer mode. Plus and Free plans cannot add them.
+
+### Any other agent
+
+Give the agent this and it will configure itself:
+
+```text
+Set up browser-gateway for me by following https://browsergateway.com/agent-setup.txt
+MCP endpoint: https://cdp.browsergateway.io/mcp
+Router key: bg_YOUR_KEY
+Store the key in the BROWSER_GATEWAY_KEY environment variable, never in a committed file.
+```
+
+`https://cdp.browsergateway.io/mcp/setup.md` returns the same instructions as plain text.
+
+## One browser per chat
+
+Each chat (each MCP connection) gets its own browser. The agent does not need to open one first or keep track of an id: its first browser tool call opens the browser, and every later call in that chat uses it. Two chats on the same key get two separate browsers.
+
+- An agent can still open more than one browser with `browser_session` `action: "open"`. With more than one open, calls without a `sessionId` are refused with the list of ids to choose from.
+- When a chat's browser closes from inactivity, the next call returns an error saying the page was reset. The call after that opens a new browser.
+- Closing is `browser_session` with `action: "close"`. Without a `sessionId` it closes the chat's browser.
+
+This relies on the client sending back the `Mcp-Session-Id` header it receives when it connects, as the MCP specification requires. A client that does not must open a browser with `browser_session` and pass its `sessionId` on every call.
+
+## Recording, traces and profiles
+
+Each browser can be recorded, traced or started from a saved profile. The agent sets these when it opens a browser, and the **Agents** page sets the defaults for browsers the agent opens without asking.
+
+| Option on `browser_session` open | What it does |
+|---|---|
+| `record: true` | Records the browser as a video. See [Replays](/replays). |
+| `observability: true` | Captures network requests, console output and navigations as a trace. |
+| `profile: "work"` | Starts from the saved profile `work`, so the browser is already signed in. See [Profiles](/profiles). |
+| `saveProfile: true` | Writes cookies and storage back to the profile when the browser closes. |
+
+What an agent passes wins over the defaults, including `false`. A profile opens read-only unless the agent passes `saveProfile: true` or **Save changes to the profile** is on for the router. Profile rules are the same as for CDP connections: saving needs a provider that can hold that profile.
+
+The result of opening a browser includes the session id and a `dashboardUrl` for the session's page in the dashboard. The recording and trace appear there shortly after the browser closes.
+
+Agent sessions show an **Agent** label in the Sessions list and on the Overview.
+
+## Limits and billing
+
+- A browser closes after 5 minutes without a tool call. An agent can ask for 1 to 5 minutes with `idleMinutes` when it opens one.
+- Every browser closes after 4 hours.
+- One browser is billed as one session, however many tool calls it serves.
+- Recording and traces are paid from your wallet at the same rates as CDP sessions. With an empty wallet, opening a browser that records or traces returns an error; browsers without them still open. See [Billing](/billing).
+- Screenshots come back as images, so chat apps show them to the model directly.
+
+## Tools
+
+The cloud serves the same tools as the [self-hosted server](/mcp#tools) except `browser_status`, plus the options above on `browser_session`.

@@ -23,6 +23,7 @@
     "---Cloud---",
     "cloud-data-api",
     "cloud-rest-api",
+    "cloud-mcp",
     "billing"
   ]
 }
