@@ -138,6 +138,7 @@ Configuration is a YAML file (`browserserve.yml` in the working directory, or `B
 | `session.pidsMax` | `0` | Per-session cap on processes plus threads. Kernel-enforced on a delegated host only; `0` = disabled. A browser session typically uses 120 to 160. |
 | `session.idleTimeoutMs` | `0` | Kill a session whose client has not sent a CDP message in this many ms; `0` = disabled. Recommended starting value: `300000` (5 min). |
 | `session.killGraceMs` | `5000` | SIGTERM-to-SIGKILL grace during teardown. |
+| `session.singleUse` | `false` | Serve exactly one session, then exit with code `0`. Later connections get `503 single_use_spent`. Forces `pool.maxSessions: 1` and skips calibration. For platforms that start a fresh instance when one exits (Cloud Run, Kubernetes, Fly Machines), so no two clients share a process or machine. Available from 0.1.12. |
 | `pressure.maxCpuPercent` | `95` | Reject new sessions above this host CPU usage. |
 | `pressure.maxMemoryPercent` | `95` | Reject new sessions above this host memory usage. |
 | `chrome.noSandbox` | `false` | Start without the Chromium sandbox. |
@@ -169,6 +170,7 @@ Every tuning knob has an environment-variable equivalent, so container and serve
 | `BROWSERSERVE_MEMORY_MAX_MB` | `session.memoryMaxMb` | Per-session memory cap in MiB. `0` disables. |
 | `BROWSERSERVE_CPU_PERCENT` | `session.cpuPercent` | Per-session CPU cap, percent of one core. `0` disables. |
 | `BROWSERSERVE_PIDS_MAX` | `session.pidsMax` | Per-session cap on processes plus threads. `0` disables. |
+| `BROWSERSERVE_SINGLE_USE` | `session.singleUse` | One session per process, then exit. Boolean. |
 | `BROWSERSERVE_NO_SANDBOX` | `chrome.noSandbox` | Opt out of the Chromium sandbox. Boolean. |
 | `BROWSERSERVE_REQUIRE_SANDBOX` | `chrome.requireSandbox` | Refuse to fall back if the host blocks the sandbox. |
 
