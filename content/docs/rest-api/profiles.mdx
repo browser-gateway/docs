@@ -17,6 +17,7 @@ Manage profiles stored on disk. Profiles hold cookies + localStorage + IndexedDB
 | `GET` | `/v1/profiles/:id` |  |
 | `GET` | `/v1/profiles/:id/export` |  |
 | `POST` | `/v1/profiles/create` |  |
+| `POST` | `/v1/profiles/disable` | Turns profiles off in gateway.yml. Saved profiles stay on disk. Restart required. |
 | `POST` | `/v1/profiles/import` |  |
 | `POST` | `/v1/profiles/setup` | Enable-Profiles wizard. appends a profiles block to gateway.yml AND flips the live `config.profiles.enabled` so any subsequent writeConfig call (provider add/edit/delete) doesn't overwrite the new block. Restart is still required for the gateway to actually bootstrap profiles. |
 

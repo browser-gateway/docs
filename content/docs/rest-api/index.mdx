@@ -10,8 +10,9 @@ The gateway exposes three categories of HTTP endpoints:
 - **Action endpoints** (`/v1/screenshot`, `/v1/content`, `/v1/scrape`): one-shot browser actions, no client code needed.
 - **Control endpoints** (`/v1/providers`, `/v1/config`, `/v1/profiles`, `/v1/replays`, `/v1/sessions`, `/v1/status`): manage the gateway itself.
 - **Compat + dashboard** (`/health`, `/json/version`, `/web/*`): Chrome-compat endpoints and the dashboard.
+- **MCP** (`/mcp`, `/mcp/setup.md`): the MCP server for AI agents over HTTP. See [MCP](/mcp).
 
-When `BG_TOKEN` is set, every `/v1/*` endpoint on this page requires either an `Authorization: Bearer <BG_TOKEN>` header or the dashboard's session cookie. A `?token=` query parameter is not accepted here, because query strings end up in the access logs of any proxy in front of the gateway. The WebSocket endpoint `/v1/connect` still takes `?token=`, since CDP clients cannot set headers on a WebSocket handshake. `/health` and `/json/version` are always public.
+When `BG_TOKEN` is set, every `/v1/*` endpoint on this page requires either an `Authorization: Bearer <BG_TOKEN>` header or the dashboard's session cookie. A `?token=` query parameter is not accepted here, because query strings end up in the access logs of any proxy in front of the gateway. The WebSocket endpoint `/v1/connect` still takes `?token=`, since CDP clients cannot set headers on a WebSocket handshake. `/health` and `/json/version` are always public. `/mcp` accepts the token only as an `Authorization: Bearer` header. `/mcp/setup.md` needs no token, so an agent can read the setup steps before it has one; both are refused from a foreign browser `Origin`, and, when `BG_TOKEN` is unset, from any non-loopback `Host` not listed in `BG_ALLOWED_HOSTS`.
 
 Requests that change something (`POST`, `PUT`, `PATCH`, `DELETE`) must send `Content-Type: application/json` when they carry a body, or the gateway answers `415`. A request arriving with a `Sec-Fetch-Site: cross-site` header, which browsers add when one site calls another, is answered `403`.
 
@@ -27,11 +28,16 @@ Requests that change something (`POST`, `PUT`, `PATCH`, `DELETE`) must send `Con
 | `POST` | [`/v1/content`](/rest-api/content) | Content |
 | `GET` | [`/health`](/rest-api/health) | Health |
 | `GET` | [`/json/version`](/rest-api/json-version) | Chrome Compat |
+| `POST` | [`/mcp`](/mcp) | MCP |
+| `GET` | [`/mcp`](/mcp) | MCP |
+| `DELETE` | [`/mcp`](/mcp) | MCP |
+| `GET` | [`/mcp/setup.md`](/mcp) | MCP |
 | `GET` | [`/v1/profiles`](/rest-api/profiles) | Profiles |
 | `DELETE` | [`/v1/profiles/:id`](/rest-api/profiles) | Profiles |
 | `GET` | [`/v1/profiles/:id`](/rest-api/profiles) | Profiles |
 | `GET` | [`/v1/profiles/:id/export`](/rest-api/profiles) | Profiles |
 | `POST` | [`/v1/profiles/create`](/rest-api/profiles) | Profiles |
+| `POST` | [`/v1/profiles/disable`](/rest-api/profiles) | Profiles |
 | `POST` | [`/v1/profiles/import`](/rest-api/profiles) | Profiles |
 | `POST` | [`/v1/profiles/setup`](/rest-api/profiles) | Profiles |
 | `GET` | [`/v1/providers`](/rest-api/providers) | Providers |
