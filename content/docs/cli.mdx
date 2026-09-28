@@ -3,7 +3,9 @@ title: "CLI Reference"
 description: "browser-gateway provides a command-line interface for running and managing the gateway."
 ---
 
-browser-gateway provides a command-line interface for running and managing the gateway.
+browser-gateway provides a command-line interface for running and managing the gateway, and for driving a browser from the terminal.
+
+Requires Node.js 20.17 or newer.
 
 ## Commands
 
@@ -17,9 +19,12 @@ browser-gateway serve [options]
 
 | Option | Description | Default |
 |--------|-------------|---------|
-| `--config <path>` | Path to gateway.yml | `./gateway.yml` |
+| `--config <path>` | Path to gateway.yml | See below |
 | `--port <number>` | Override server port | 9500 |
-| `--no-ui` | Disable the web dashboard | Dashboard enabled |
+
+Without `--config`, the gateway uses the first file it finds: `BG_CONFIG_PATH`, then `$BG_DATA_DIR/gateway.yml`, then `./gateway.yml`. A `gateway.yml` in the data directory therefore wins over one in the current directory. See [Config File Location](/configuration#config-file-location).
+
+To turn the dashboard off, set `dashboard.enabled: false` in `gateway.yml`.
 
 Examples:
 
@@ -58,6 +63,106 @@ Exit codes:
 - `0` - All providers reachable
 - `1` - One or more providers unreachable
 
+### mcp
+
+Start an MCP server over stdio so an AI agent (Claude Code, Cursor, Codex and others) can drive browsers through the gateway.
+
+```bash
+browser-gateway mcp [options]
+```
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--cdp-endpoint <url>` | Use this CDP endpoint as the only provider | Launch a local Chrome on first use |
+| `--config <path>` | Use the providers in this gateway.yml | None |
+| `--headless` | Run the local Chrome headless | Headed on macOS and Windows, headless on Linux without a display |
+| `--port <number>` | Port for the internal gateway | 9500 |
+
+With no options, the server starts a local Chrome the first time the agent asks for a browser. A running gateway also serves MCP over HTTP at `POST /mcp`. See [MCP](/mcp) for client setup.
+
+### browse
+
+Drive a browser from the terminal, one command at a time. The browser stays open between commands, so an agent or a shell script can open a page, read it, click and type across several calls.
+
+```bash
+browser-gateway browse <verb> [args] [flags]
+```
+
+| Verb | What it does |
+|------|--------------|
+| `open <url>` | Go to a page and print its clickable and typeable elements |
+| `snapshot` | List those elements again, labelled `e1`, `e2`, ... |
+| `click @e4` | Click an element |
+| `fill @e2 <text>` | Replace a field's text |
+| `type @e2 <text>` | Type without clearing |
+| `press @e2 Enter` | Press a key (the element is optional) |
+| `check @e5` / `uncheck @e5` | Set a checkbox |
+| `select @e7 <option>` | Pick a dropdown option |
+| `hover @e4` | Hover an element |
+| `scroll up` / `scroll down` | Scroll the page |
+| `extract` | Read the page (`--format markdown`, `text` or `links`) |
+| `screenshot [@e4]` | JPEG screenshot of the page or one element (`--full`, `--changed`) |
+| `wait <text>` | Wait for text (`--selector`, `--url`, `--timeout`) |
+| `tabs [list\|new\|select\|close]` | Manage tabs |
+| `eval <expression>` | Run JavaScript in the page |
+| `observe` | Console output, failed requests, downloads, dialogs |
+| `close` | Close this session's browser |
+| `sessions` | List open sessions |
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `--session <name>` | Name of the browser session. Use different names to run several browsers at once | `default` |
+| `--endpoint <url>` | Gateway or CDP endpoint to connect to | `BG_ENDPOINT`, then the saved login |
+| `--token <token>` | Token for that endpoint | `BG_TOKEN`, then the saved login |
+| `--json` | Print the raw result as JSON | Off |
+| `--idle-minutes <n>` | Close the browser after this long with no command | 5 minutes |
+
+```bash
+browser-gateway login --endpoint ws://localhost:9500 --token $BG_TOKEN
+browser-gateway browse open https://en.wikipedia.org/wiki/Web_browser
+browser-gateway browse fill @e5 "headless browser"
+browser-gateway browse extract --format text
+browser-gateway browse close
+```
+
+`--endpoint` accepts a gateway base URL (the CLI adds `/v1/connect`), a full `/v1/connect` URL, or a browser's own `/devtools/` URL.
+
+### login
+
+Save an endpoint and token for `browse`, after checking the endpoint answers.
+
+```bash
+browser-gateway login --endpoint <url> [--token <token>]
+```
+
+The values are written to `~/.browser-gateway/credentials.json`, readable only by your user. `BG_ENDPOINT` and `BG_TOKEN` can stand in for the flags.
+
+### logout
+
+Delete the saved endpoint and token.
+
+```bash
+browser-gateway logout
+```
+
+### whoami
+
+Show the endpoint and masked token `browse` will use, and whether the endpoint is reachable.
+
+```bash
+browser-gateway whoami
+```
+
+### skills
+
+Install an Agent Skill that teaches coding agents how to use `browse`.
+
+```bash
+browser-gateway skills [--dir <path>]
+```
+
+Without `--dir`, the skill is written to `~/.claude/skills/browser-gateway/SKILL.md` and `~/.codex/skills/browser-gateway/SKILL.md` for whichever of those tools is installed. If neither is found, the skill is printed to the terminal.
+
 ### version
 
 Print the installed version.
@@ -93,6 +198,9 @@ npx browser-gateway serve --config ./gateway.yml
 | `BG_DATA_DIR` | Where the gateway stores config, profiles, encryption key | `/data` (Docker), `~/.browser-gateway` (otherwise) |
 | `BG_CONFIG_PATH` | Path to gateway.yml | `$BG_DATA_DIR/gateway.yml` |
 | `BG_ALLOWED_ORIGINS` | Cross-origin allowlist (comma-separated) | Same-origin only |
+| `BG_PUBLIC_URL` | Public base URL the gateway gives to agents, e.g. `https://gateway.example.com` | Built from the bind interface and port |
+| `BG_TRUST_PROXY` | Set to `1` behind a proxy that overwrites `X-Forwarded-Host` | Off |
+| `BG_ENDPOINT` | Endpoint for `browse`, `login` and `whoami` when `--endpoint` is not given | Saved login |
 | `BG_ALLOWED_HOSTS` | Extra `Host` header values accepted on `/mcp` when `BG_TOKEN` is unset (comma-separated) | Loopback only |
 | `PORT` | Server port (12-factor convention) | 9500 |
 | `HOST` | Bind interface | `0.0.0.0` when `BG_TOKEN` is set, `127.0.0.1` when it is not |
