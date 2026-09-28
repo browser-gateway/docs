@@ -5,26 +5,26 @@ description: "Programmatic access to your browsergateway.com workspace over HTTP
 
 ## What it is
 
-The Cloud REST API is the same control plane the dashboard at `app.browsergateway.com` talks to. Anything you do in the dashboard (list sessions, manage providers, create profiles, read replays, top up the wallet, configure webhooks) can be scripted through this API.
+The Cloud REST API is the same control plane the dashboard at `app.browsergateway.com` talks to. Most of what you do in the dashboard (list sessions, manage providers and routers, create profiles, read recordings and traces, configure webhooks, read billing) can be scripted through this API.
 
-This is distinct from two other surfaces on the platform:
+This is distinct from the other surfaces on the platform:
 
 | Surface | Base URL | Auth | Purpose |
 |---|---|---|---|
-| **Cloud REST API** (this page) | `https://app-api.browsergateway.com/v1` | `Authorization: Bearer bga_...` | Control-plane HTTP: manage workspaces, providers, profiles, sessions, billing |
-| **Cloud CDP endpoint** | `wss://cdp.browsergateway.io/v1/connect?token=bg_...` | Router key in query string | Open a browser session over CDP (Puppeteer / Playwright) |
-| **Cloud Data API** | `https://cdp.browsergateway.io/v1/*` | `Authorization: Bearer bg_...` (router key) | One-shot screenshot / content / scrape. See [Cloud Data API](/cloud-data-api). |
-| **Self-hosted gateway REST** | `http://your-host:9500/v1/*` | `BG_TOKEN` env var | The same surface as this API but on the OSS gateway you run yourself. See [Gateway REST API](/rest-api). |
+| **Cloud REST API** (this page) | `https://app-api.browsergateway.com/v1` | `Authorization: Bearer bga_...` | Control plane: workspaces, routers, providers, profiles, sessions, billing |
+| [**Cloud CDP endpoint**](/cloud-cdp) | `wss://cdp.browsergateway.io/v1/connect?token=bg_...` | Router key | Open a browser session over CDP (Puppeteer, Playwright) |
+| [**Cloud Data API**](/cloud-data-api) | `https://cdp.browsergateway.io/v1/*` | Router key | One-shot screenshot, content and scrape |
+| [**Self-hosted gateway REST**](/rest-api) | `http://your-host:9500/v1/*` | `BG_TOKEN` | The gateway you run yourself |
 
-Cloud access tokens (this page) and router keys (for CDP + Data API) are separate systems.
+Account tokens (`bga_...`, this page) and router keys (`bg_...`, for CDP, the Data API and MCP) are separate credentials.
 
 ## Get a token
 
-Sign in to `app.browsergateway.com`, open the **Keys** page, and click **New access token**. Give it a label so you can spot it in the list later (`ci-runner`, `analytics-dashboard`, etc.).
+Sign in to `app.browsergateway.com`, open **Keys & access**, and create an access token. Give it a label so you can spot it in the list later (`ci-runner`, `analytics-dashboard`).
 
-The plaintext token is shown once, right after creation. Copy it immediately. If you lose it, revoke the token and create a new one.
+The plaintext token is shown once, right after creation. Copy it immediately. If you lose it, rotate or revoke the token.
 
-Tokens are user-scoped. They act with your workspace membership across every workspace you belong to. The active workspace is the one set as your default in the dashboard; override it per-request with an `X-Workspace-Id` header.
+Each user can hold 10 active tokens. Tokens belong to your user, not to a workspace: a token acts with your membership in every workspace you belong to, with your role in each.
 
 ## Auth
 
@@ -35,18 +35,25 @@ curl https://app-api.browsergateway.com/v1/me \
   -H "Authorization: Bearer bga_YOUR_TOKEN_HERE"
 ```
 
-Bearer tokens work on every read + most writes across the control plane. A short list of high-risk endpoints requires a signed-in browser session and rejects bearers with HTTP 403. See [Cookie-only endpoints](#cookie-only-endpoints).
+A few endpoints refuse bearer tokens and need a signed-in dashboard session. See [Cookie-only endpoints](#cookie-only-endpoints).
 
-Every bearer request updates the token's `lastUsedAt` timestamp (throttled to one write per hour per token, visible on the Keys page).
+Endpoints that change configuration, return a credential, or return decrypted profile data need the **owner** or **admin** role in the workspace. A **member** gets `403 forbidden` on those.
+
+### Choosing the workspace and router
+
+| Header | Effect |
+|---|---|
+| `X-Workspace-Id: <id>` | The workspace this request acts on. If you are not a member, the request fails with `403 not_a_member`. |
+| `X-Router-Id: <id>` | The router this request acts on, for endpoints scoped to one router (providers, router keys, inspections). |
+
+Send both headers on every bearer call if you belong to more than one workspace or your workspace has more than one router. Without them, a bearer call uses one of your workspaces and its first router, which is not necessarily the one selected in the dashboard. Some endpoints also accept `?routerInstanceId=<id>` to target a router.
 
 ## Common response shape
-
-Every endpoint returns JSON in a consistent envelope.
 
 Success:
 
 ```json
-{ "ok": true, "data": { "..." } }
+{ "ok": true, "data": { "...": "..." } }
 ```
 
 Error:
@@ -61,7 +68,38 @@ Error:
 }
 ```
 
-Successful responses always carry rate-limit headers:
+The billing endpoints are the exception: their errors carry a plain string, for example `{ "ok": false, "error": "bad_request" }`.
+
+## Error codes
+
+| Code | HTTP | Meaning |
+|---|---|---|
+| `validation_error` | 400 | Request body or parameters failed validation. Some endpoints use `bad_request`, `invalid_input`, `invalid_url` or `invalid_id`. |
+| `unauthenticated` | 401 | Missing or invalid bearer |
+| `fair_use_limit_reached` | 402 | A fair-use ceiling was hit: 100 routers, 500 profiles or 100 router keys per workspace, or 1,000 members |
+| `cookie_required` | 403 | Endpoint refuses bearers (see [below](#cookie-only-endpoints)) |
+| `forbidden` | 403 | Your role in the workspace does not allow this action |
+| `not_a_member` | 403 | `X-Workspace-Id` names a workspace you do not belong to |
+| `not_found` | 404 | Resource missing or in another workspace |
+| `conflict` | 409 | A router, provider or profile with that slug already exists |
+| `last_router` | 409 | A workspace must keep at least one router |
+| `limit_reached` | 409 | You already have 10 active access tokens |
+| `payload_too_large` | 413 | A profile is larger than 10 MB |
+| `profile_storage_cap_exceeded` | 413 | Saving the profile would pass the workspace's 500 MB profile storage |
+| `rate_limited` | 429 | Daily bearer cap reached (see [Rate limits](#rate-limits)) |
+| `provider_calibrating` | 503 | A browserserve provider is still starting. Retry shortly. |
+
+## Rate limits
+
+Bearer calls to the providers, routers, profiles, sessions, replays, inspections and webhooks endpoints count against a per-workspace daily cap. Other endpoints do not count.
+
+| Account state | Daily cap |
+|---|---|
+| Wallet balance of zero or below | 5,000 |
+| Wallet balance above zero | 100,000 |
+| Enterprise | 100,000 |
+
+The count resets at midnight UTC. Counted responses carry:
 
 ```
 X-RateLimit-Limit: 100000
@@ -69,55 +107,19 @@ X-RateLimit-Remaining: 99871
 X-RateLimit-Reset: 1735689600
 ```
 
-`X-RateLimit-Reset` is Unix seconds.
+`X-RateLimit-Reset` is Unix seconds. Over the cap, responses are `429 rate_limited` with a `Retry-After` header. The cap follows your wallet: a workspace whose balance drops to zero goes back to 5,000 calls per day.
 
-## Error codes
-
-| Code | HTTP | Meaning |
-|---|---|---|
-| `unauthenticated` | 401 | Missing or invalid bearer |
-| `cookie_required` | 403 | Endpoint rejects bearer, needs cookie session (see [below](#cookie-only-endpoints)) |
-| `forbidden` | 403 | Signed in but not permitted for this action |
-| `not_found` | 404 | Resource missing or scoped to another workspace |
-| `validation_error` | 400 | Request body failed schema |
-| `limit_reached` | 409 | Fair-use ceiling hit (see plan limits) |
-| `rate_limited` | 429 | Per-day bearer cap exceeded |
-
-## Data-plane REST timeouts
-
-The one-shot data-plane endpoints (`POST /v1/screenshot`, `POST /v1/content`, `POST /v1/scrape` on `https://cdp.browsergateway.io`) accept a `timeout` field in the request body:
-
-| Field | Default | Min | Max | Controls |
-|---|---|---|---|---|
-| `timeout` | `30000` | `1000` | `120000` | Per-navigation timeout in milliseconds. Also drives the outer request wall-clock. |
-| `waitForSelector` | none | | | CSS selector to wait for after navigation. |
-| `waitForTimeout` | none | `0` | `30000` | Extra milliseconds to wait after load. |
-| `retries` | `2` | `0` | `5` | Retry attempts on navigation failure. |
-
-The router derives the outer request budget as `timeout + 20000ms` (20 seconds of slack for provider connect + response serialization). Set `timeout` higher for slow external upstreams:
-
-```bash
-curl -X POST "https://cdp.browsergateway.io/v1/screenshot" \
-  -H "Authorization: Bearer $BG_ROUTER_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"url":"https://example.com","timeout":90000}'
-```
-
-Cloudflare Browser Rendering and other beta providers can be 5-25× slower than mainstream cloud browsers on complex pages. Raise `timeout` up to the 120-second max if you see 408 responses.
+Dashboard traffic from a signed-in session never counts.
 
 ## Endpoints
 
 Grouped by resource. Every path is under `https://app-api.browsergateway.com`.
 
-### Session + user
+### User and workspaces
 
 #### GET /v1/me
 
-Return the authenticated user, the workspace this token is scoped to, and the active router within it.
-
-Request: no body.
-
-Response:
+The authenticated user, their workspaces, and the workspace and router this request resolved to.
 
 ```json
 {
@@ -138,60 +140,190 @@ Response:
     "activeWorkspacePlan": "free",
     "activeWorkspaceAccountState": "paid",
     "routers": [
-      { "id": "rtr_main", "slug": "main", "name": "Main" }
+      { "id": "ri_main", "slug": "main", "name": "Main" }
     ],
-    "activeRouterInstanceId": "rtr_main"
+    "activeRouterInstanceId": "ri_main",
+    "isAdmin": false
   }
 }
 ```
 
-`activeWorkspaceAccountState` is one of `"free"`, `"paid"`, `"enterprise"`.
-
-To scope a request to a specific workspace you belong to, send `X-Workspace-Id: <id>` on any request.
+`activeWorkspaceAccountState` is `"free"`, `"paid"` or `"enterprise"`. `"paid"` means the wallet balance is above zero right now.
 
 #### GET /v1/workspaces
 
-List every workspace you belong to.
+Every workspace you belong to: `{ "items": [{ "id", "slug", "name", "role" }] }`.
 
-Response:
+#### POST /v1/workspaces/active
 
-```json
-{
-  "ok": true,
-  "data": {
-    "items": [
-      { "id": "ws_personal", "slug": "ada", "name": "Ada", "role": "owner" }
-    ]
-  }
-}
-```
+Set the workspace the dashboard opens: `{ "workspaceId": "ws_team" }`. Bearer calls do not read this; they use `X-Workspace-Id`.
 
 #### GET /v1/workspaces/current/members
 
-Members of the active workspace.
+```json
+{
+  "ok": true,
+  "data": {
+    "items": [
+      {
+        "id": "wm_abc",
+        "userId": "usr_abc",
+        "role": "owner",
+        "joinedAt": "2026-09-01T09:12:04.000Z",
+        "name": "Ada",
+        "email": "you@example.com",
+        "image": null
+      }
+    ]
+  }
+}
+```
 
-Response:
+#### POST /v1/workspaces/current/leave
+
+Leave the workspace. The owner cannot leave; delete the workspace instead.
+
+#### DELETE /v1/workspaces/current/members/:userId
+
+Remove a member. Owner or admin, cookie session only. The owner cannot be removed.
+
+#### DELETE /v1/workspaces/current
+
+Delete the workspace and everything in it, immediately. Owner only, cookie session only. The body must confirm the slug: `{ "confirm": "acme" }`.
+
+### Invitations
+
+Owners and admins invite people by email. The invitation link is valid for 7 days.
+
+| Endpoint | Who | What it does |
+|---|---|---|
+| `GET /v1/invitations` | Any member | Pending invitations: `id`, `email`, `role`, `expiresAt`, `createdAt`, `invitedByName` |
+| `POST /v1/invitations` | Owner or admin, cookie session only | Invite `{ "email": "...", "role": "admin" \| "member" }`. Sends the email. |
+| `POST /v1/invitations/:id/resend` | Owner or admin | New link, new 7-day expiry, email sent again |
+| `DELETE /v1/invitations/:id` | Owner or admin | Cancel a pending invitation |
+| `GET /v1/invitations/:token/lookup` | Anyone with the link | Workspace name, inviter, role, expiry |
+| `POST /v1/invitations/:token/accept` | The invited user, signed in | Join the workspace |
+| `POST /v1/invitations/:token/decline` | The invited user, signed in | Decline |
+
+Accept and decline only work when you are signed in with the invited email address.
+
+### Routers
+
+A router is one routing endpoint with its own providers, router keys, strategy and settings. A workspace can hold up to 100 routers.
+
+#### GET /v1/routers
 
 ```json
 {
   "ok": true,
   "data": {
     "items": [
-      { "userId": "usr_abc", "email": "you@example.com", "name": "Ada", "role": "owner", "joinedAt": "2026-09-01T09:12:04.000Z" }
-    ]
+      {
+        "id": "ri_main",
+        "slug": "main",
+        "name": "Main",
+        "description": null,
+        "kind": "route",
+        "strategy": "round-robin",
+        "cooldownDefaultMs": 30000,
+        "cooldownFailureThreshold": 0.5,
+        "cooldownMinRequestVolume": 3,
+        "connectionTimeoutMs": 15000,
+        "sessionIdleTimeoutMs": 300000,
+        "queueMaxSize": 50,
+        "queueTimeoutMs": 30000,
+        "healthCheckIntervalMs": 30000,
+        "providerCount": 2,
+        "apiKeyCount": 1,
+        "createdAt": "2026-07-24T10:00:00.000Z",
+        "updatedAt": "2026-09-01T10:00:00.000Z"
+      }
+    ],
+    "total": 1
   }
 }
 ```
 
+`GET /v1/routers/:id` returns one router in the same shape.
+
+#### POST /v1/routers
+
+```json
+{ "name": "CI runner", "slug": "ci-runner", "description": "Nightly jobs" }
+```
+
+`slug` is optional (derived from `name`) and must be 2 to 40 lowercase letters, digits or hyphens. A new router gets its first router key. Response `201` with the router row.
+
+#### PATCH /v1/routers/:id
+
+Any subset of:
+
+| Field | Range | Default |
+|---|---|---|
+| `name`, `description` | text | |
+| `strategy` | `priority-chain`, `round-robin`, `least-connections`, `latency-optimized`, `weighted` | `round-robin` |
+| `connectionTimeoutMs` | 1,000 to 30,000 | 15,000 |
+| `sessionIdleTimeoutMs` | 10,000 to 840,000 | 300,000 |
+| `queueMaxSize` | 0 to 10,000 | 50 |
+| `queueTimeoutMs` | 0 to 86,400,000 | 30,000 |
+| `healthCheckIntervalMs` | 5,000 to 3,600,000 | 30,000 |
+| `cooldownDefaultMs` | 0 to 86,400,000 | 30,000 |
+| `cooldownFailureThreshold` | 0 to 1 | 0.5 |
+| `cooldownMinRequestVolume` | 0 to 1,000,000 | 3 |
+
+Response: the full router row.
+
+#### DELETE /v1/routers/:id
+
+Deletes the router, its providers and its router keys. Response `{ "ok": true, "data": { "id": "ri_ci", "slug": "ci-runner" } }`. Deleting a workspace's only router returns `409 last_router`.
+
+#### GET /v1/routers/:id/settings
+
+The router's feature switches. All are `true` on a new router.
+
+```json
+{
+  "ok": true,
+  "data": {
+    "routerInstanceId": "ri_main",
+    "webhooksEnabled": true,
+    "profilesEnabled": true,
+    "replayEnabled": true,
+    "observabilityEnabled": true
+  }
+}
+```
+
+`PATCH /v1/routers/:id/settings` takes any subset of the four booleans. `replayEnabled` is the Recording switch and `observabilityEnabled` is the Traces switch. See [Router switches](/cloud-cdp#router-switches) for what each one blocks.
+
+#### GET /v1/routers/:id/agent-settings
+
+Defaults for browsers that agents open through [Cloud MCP](/cloud-mcp) without asking for these options themselves:
+
+```json
+{
+  "ok": true,
+  "data": {
+    "routerInstanceId": "ri_main",
+    "recordDefault": false,
+    "observabilityDefault": false,
+    "defaultProfile": null,
+    "saveProfileDefault": false
+  }
+}
+```
+
+`PATCH /v1/routers/:id/agent-settings` takes any subset. `defaultProfile` must name an existing profile, or `null`.
+
+#### POST /v1/routers/active
+
+Set the router the dashboard opens: `{ "routerInstanceId": "ri_ci" }`. Bearer calls use `X-Router-Id` instead.
+
 ### Providers
 
-Providers are the browser upstreams the router routes to (browserless, browserserve, Steel, any CDP endpoint).
+Providers are the browser upstreams a router routes to. These endpoints act on the router from `X-Router-Id`, or on `?routerInstanceId=<id>` when given.
 
 #### GET /v1/providers
-
-List providers on the active router.
-
-Response:
 
 ```json
 {
@@ -200,30 +332,50 @@ Response:
     "items": [
       {
         "id": "prv_abc",
+        "ownerId": "ws_personal",
         "slug": "browserless-eu",
         "name": "Browserless EU",
         "url": "wss://browserless.example.com/",
-        "headers": {},
+        "adapterKind": null,
         "priority": 100,
-        "weight": 1,
+        "weight": 100,
         "maxConcurrent": 5,
         "profile": null,
-        "detectedKind": "browserless",
-        "capabilities": { "cdp": true, "screencast": true, "multiProfile": false },
-        "healthy": true,
-        "cooldownUntilMs": null,
-        "createdAt": "2026-08-25T14:12:11.000Z"
+        "capabilities": {
+          "providerKind": "generic",
+          "browserCookies": "supported",
+          "targetCreate": "supported",
+          "targetGetTargets": "supported",
+          "fetchInterception": "supported",
+          "pageScreencast": "supported",
+          "targetCreateLatencyMs": 41,
+          "advertisedMaxConcurrent": null,
+          "probedAt": "2026-08-25T14:12:11.000Z",
+          "probeDurationMs": 830,
+          "errors": []
+        },
+        "headers": null,
+        "enabled": true,
+        "createdAt": "2026-08-25T14:12:11.000Z",
+        "updatedAt": "2026-08-25T14:12:11.000Z"
       }
-    ]
+    ],
+    "total": 1,
+    "page": 1,
+    "pageSize": 1
   }
 }
 ```
 
+The `url` is returned without its query string or user credentials, and `headers` is always `null`, so credentials never appear in list responses. `GET /v1/providers/:slug` returns one provider in the same shape.
+
+#### GET /v1/providers/:slug/plaintext
+
+The stored `url` and `headers` in full, credentials included. Owner or admin.
+
 #### POST /v1/providers
 
-Add a provider. Fields marked `?` are optional.
-
-Request:
+Add a provider by its connection address:
 
 ```json
 {
@@ -232,113 +384,68 @@ Request:
   "url": "wss://production-sfo.browserless.io/?token=YOUR_TOKEN",
   "headers": { "X-Region": "sfo" },
   "priority": 100,
-  "weight": 1,
-  "maxConcurrent": 3,
-  "profile": null
+  "weight": 100,
+  "maxConcurrent": 3
 }
 ```
 
-`slug` must be lowercase kebab, unique within the router.
-`maxConcurrent`: leave `null` for unlimited (upstream is authoritative on its own capacity). Browserserve providers self-advertise via `Browserserve-MaxConcurrent`.
-`profile`: set to a profile slug to hard-pin this provider to that profile (required for external providers if you want write-back).
+| Field | Rules |
+|---|---|
+| `slug` | Required. Letters, digits and single hyphens, up to 64 characters, unique on the router. |
+| `url` | A `ws://` or `wss://` address. |
+| `headers` | Optional. Sent on every connection to this provider, up to 20. |
+| `priority`, `weight` | 1 to 1000. Both default to 100. |
+| `maxConcurrent` | 1 to 1000. Omit for no limit on our side. A browserserve provider's advertised capacity is used when you omit it. |
+| `profile` | Optional profile slug. Pins the provider to that profile, which lets a non-browserserve provider save to it. Omit to leave unpinned; `null` is not accepted on create. |
 
-Response `201 Created`:
+The provider is tested and its capabilities recorded when it is added. Response `201` with the provider row.
+
+Or add a provider that creates a browser for each session through its own API, using a key instead of an address:
 
 ```json
 {
-  "ok": true,
-  "data": { /* same shape as list item above */ }
+  "slug": "kernel",
+  "adapterKind": "kernel",
+  "credentials": { "apiKey": "YOUR_KERNEL_KEY" },
+  "options": { "region": "us-east" }
 }
 ```
 
-Errors: `validation_error` (400), `limit_reached` (409) when `providersPerRouter` fair-use cap is hit.
+The key is checked with the provider before the provider is saved, without starting a paid browser. `POST /v1/providers/verify-key` runs the same check on its own: `{ "adapterKind", "credentials", "options" }` returns `{ "verified": true, "provider": "Kernel" }`, `401` when the provider rejects the key, or `502` when the provider cannot be reached. The providers available this way are listed on the dashboard's **Providers** page.
 
-#### PUT /v1/providers/:id
+#### PATCH /v1/providers/:slug
 
-Update a provider. Any subset of the create fields. On URL/header change the capability probe re-runs.
+Any subset of `name`, `url`, `headers`, `priority`, `weight`, `maxConcurrent`, `profile` and `enabled`. `profile: null` unpins the provider. A new `url` is tested again. Providers added with a key have no address, so `url` and `headers` are refused on them.
 
-Response: full provider row.
+`enabled: false` switches a provider off without deleting it: the router behaves as if it were not there, and sessions already running on it continue. `enabled: true` switches it back on.
 
-#### DELETE /v1/providers/:id
+Response: the provider row.
 
-Remove a provider. Response: `{ "ok": true, "data": { "id": "prv_abc" } }`.
+#### DELETE /v1/providers/:slug
 
-#### POST /v1/providers/:id/test
+Response `{ "ok": true, "data": { "slug": "my-browserless" } }`.
 
-Open a probe connection to the provider and report success + latency.
+#### POST /v1/providers/:slug/test
 
-Response:
-
-```json
-{
-  "ok": true,
-  "data": {
-    "reachable": true,
-    "handshakeMs": 428,
-    "detectedKind": "browserless",
-    "capabilities": { "cdp": true, "screencast": true, "multiProfile": false },
-    "advertisedMaxConcurrent": null
-  }
-}
-```
-
-#### POST /v1/providers/:id/capabilities/revalidate
-
-Re-run the capability probe without opening a session. Same response shape as `/test` minus timing.
-
-### Routers
-
-A router-instance is one routing endpoint. Providers, webhooks, replay-enabled toggle etc. scope to it. Workspaces can have multiple routers (`FAIR_USE_LIMITS.routersPerWorkspace`).
-
-#### GET /v1/routers
-
-Response:
+Opens a connection to the provider and reports the result:
 
 ```json
-{
-  "ok": true,
-  "data": {
-    "items": [
-      {
-        "id": "rtr_main",
-        "slug": "main",
-        "name": "Main",
-        "strategy": "priority-chain",
-        "replayEnabled": true,
-        "observabilityEnabled": false,
-        "connectionTimeoutMs": 15000,
-        "sessionIdleTimeoutMs": 300000,
-        "healthCheckIntervalMs": 30000,
-        "queueMaxSize": 50,
-        "queueTimeoutMs": 30000,
-        "createdAt": "2026-07-24T10:00:00.000Z"
-      }
-    ]
-  }
-}
+{ "ok": true, "data": { "ok": true, "latencyMs": 428 } }
 ```
 
-#### POST /v1/routers
+On failure `data.ok` is `false` and `data.reason` explains why. For a provider added with a key, this checks the saved key instead of opening a browser.
 
-```json
-{ "slug": "ci-runner", "name": "CI runner" }
-```
+#### POST /v1/providers/:slug/reprobe
 
-Response: full router row.
+Runs the capability check again and stores the result. Response: the provider row. Not available for providers added with a key.
 
-#### PATCH /v1/routers/:id
+#### POST /v1/providers/test-url and POST /v1/providers/probe
 
-Partial update. Any subset of `name`, `strategy`, `replayEnabled`, `observabilityEnabled`, `connectionTimeoutMs`, `sessionIdleTimeoutMs`, `healthCheckIntervalMs`, `queueMaxSize`, `queueTimeoutMs`.
+Check an address before adding it. Both take `{ "url": "wss://...", "headers": { } }`. `test-url` returns the same shape as `/test`. `probe` returns `{ "detectedKind": "browserserve" | "generic" | null, "advertisedMaxConcurrent": 16 | null }`.
 
-Strategies: `"priority-chain"`, `"round-robin"`, `"least-connections"`, `"latency-optimized"`, `"weighted"`.
+### Router keys
 
-#### DELETE /v1/routers/:id
-
-Deletes the router + all its providers + all its keys + all its webhooks. Response `{ "ok": true, "data": { "id": "rtr_main" } }`.
-
-### API keys (router)
-
-Router keys are the credential you pass on `wss://cdp.browsergateway.io/v1/connect?token=...`. Different artefact from this API's bearer token. One live key per router.
+Router keys (`bg_...`) are the credential for the [CDP endpoint](/cloud-cdp), the Data API and MCP. Each key belongs to one router. These endpoints act on the router from `X-Router-Id`, or on `routerInstanceId` in the query or body.
 
 #### GET /v1/api-keys
 
@@ -348,41 +455,69 @@ Router keys are the credential you pass on `wss://cdp.browsergateway.io/v1/conne
   "data": {
     "items": [
       {
-        "id": "key_abc",
-        "prefix": "bg_yYrx",
-        "routerInstanceId": "rtr_main",
-        "createdAt": "2026-08-25T14:12:11.000Z",
+        "id": "ak_abc",
+        "routerInstanceId": "ri_main",
+        "label": "Default",
+        "prefix": "bg_yYrx0aQ",
         "lastUsedAt": "2026-09-01T14:03:22.000Z",
-        "rotatedAt": null
+        "revokedAt": null,
+        "createdAt": "2026-08-25T14:12:11.000Z"
       }
-    ]
+    ],
+    "total": 1
   }
 }
 ```
 
-Plaintext is never returned here. Use `GET /v1/api-keys/current/plaintext` (cookie-only) or rotate.
+Revoked keys stay in the list with `revokedAt` set. `GET /v1/api-keys/:id` returns one key.
 
-#### POST /v1/api-keys/rotate
+#### POST /v1/api-keys
 
-Mints a fresh key and marks the previous one to expire in 24 hours (grace window). Response returns the plaintext of the new key ONCE:
+Add another key to a router: `{ "label": "staging", "routerInstanceId": "ri_main" }`. A router can hold several live keys. Owner or admin. Response `201`:
 
 ```json
 {
   "ok": true,
   "data": {
-    "id": "key_new",
-    "prefix": "bg_9Kfr",
-    "plaintext": "bg_9KfrL0aQwxDeMt...",
-    "previousExpiresAt": "2026-09-02T14:12:11.000Z"
+    "id": "ak_new",
+    "routerInstanceId": "ri_main",
+    "label": "staging",
+    "prefix": "bg_9KfrL0a",
+    "lastUsedAt": null,
+    "revokedAt": null,
+    "createdAt": "2026-09-01T14:12:11.000Z",
+    "plaintextKey": "bg_9KfrL0aQwxDeMt..."
   }
 }
 ```
 
-Store `plaintext` immediately; subsequent GETs won't return it.
+Store `plaintextKey` immediately.
+
+#### POST /v1/api-keys/rotate
+
+Revokes every live key on the router and issues one new key, in the same response shape as create. The old keys stop working immediately, so update every place that uses them right after rotating. Optional body: `{ "routerInstanceId": "...", "label": "..." }`.
+
+#### DELETE /v1/api-keys/:id
+
+Revokes one key immediately.
+
+#### GET /v1/api-keys/current/plaintext
+
+The router's newest live key in plaintext: `{ "apiKeyId": "ak_abc", "plaintextKey": "bg_..." }`. Owner or admin. This is what the dashboard uses to fill in your key.
+
+### Chat links
+
+The chat link is the credential chat apps use to reach [Cloud MCP](/cloud-mcp). One per router. `?routerInstanceId=<id>` selects the router.
+
+| Endpoint | What it does |
+|---|---|
+| `GET /v1/mcp-links/current` | The current link: `{ "id", "routerInstanceId", "token", "lastUsedAt", "createdAt" }`, or `null` when there is none |
+| `POST /v1/mcp-links/rotate` | Replace the link. The old one stops working immediately. Response `201`. |
+| `DELETE /v1/mcp-links/current` | Remove the link |
 
 ### Profiles
 
-Persisted per-workspace browser state (cookies + localStorage + IndexedDB per origin).
+Saved browser state: cookies and localStorage per origin, plus IndexedDB for profiles saved from browserserve providers. A workspace holds up to 500 profiles, 10 MB each and 500 MB in total.
 
 #### GET /v1/profiles
 
@@ -393,34 +528,34 @@ Persisted per-workspace browser state (cookies + localStorage + IndexedDB per or
     "items": [
       {
         "id": "prf_abc",
+        "workspaceId": "ws_personal",
         "slug": "acme-checkout",
         "name": "Acme checkout state",
         "sizeBytes": 4218,
-        "originCount": 2,
-        "version": 7,
+        "capturedOrigins": ["https://acme.com"],
         "lastUsedAt": "2026-09-01T13:44:02.000Z",
-        "createdAt": "2026-08-01T09:00:00.000Z"
+        "createdAt": "2026-08-01T09:00:00.000Z",
+        "updatedAt": "2026-09-01T13:44:02.000Z"
       }
-    ]
+    ],
+    "total": 1,
+    "page": 1,
+    "pageSize": 1
   }
 }
 ```
 
+`GET /v1/profiles/:slug` returns one profile's metadata in the same shape.
+
 #### POST /v1/profiles
 
-Register a new empty profile shell (typical) or seed it with captured state.
-
-Request:
+Create an empty profile. The first session that connects with `?profile=acme-checkout` fills it.
 
 ```json
-{
-  "slug": "acme-checkout",
-  "name": "Acme checkout state",
-  "captured": null
-}
+{ "slug": "acme-checkout", "name": "Acme checkout state" }
 ```
 
-Or seeded:
+Or seed it with saved state:
 
 ```json
 {
@@ -428,51 +563,60 @@ Or seeded:
   "name": "Acme checkout state",
   "captured": {
     "version": 1,
-    "cookies": [{ "name": "session", "value": "...", "domain": ".acme.com" }],
-    "origins": [{ "origin": "https://acme.com", "localStorage": { "cart": "..." } }]
+    "capturedAt": "2026-09-01T12:00:00.000Z",
+    "cookies": [
+      { "name": "session", "value": "abc123", "domain": ".acme.com", "path": "/" }
+    ],
+    "storage": {
+      "https://acme.com": {
+        "localStorage": { "cart": "[1,2]" },
+        "sessionStorage": {}
+      }
+    },
+    "meta": { "capturedOrigins": ["https://acme.com"], "skippedOrigins": [], "durationMs": 0 }
   }
 }
 ```
 
-Response `201 Created`: full profile row.
+Slugs are 1 to 64 letters, digits, dots, underscores or hyphens. Omit `captured` for an empty profile; `null` is not accepted. Response `201` with the profile row. Owner or admin.
 
 #### POST /v1/profiles/import-playwright
 
-Import a Playwright `storageState` JSON blob directly (as saved by `context.storageState()`).
-
-Request:
+Create a profile from a Playwright `storageState` (as saved by `context.storageState()`):
 
 ```json
 {
   "slug": "acme-checkout",
   "name": "Acme checkout state",
-  "storageState": { "cookies": [...], "origins": [...] }
+  "storageState": { "cookies": [], "origins": [] }
 }
 ```
 
-Response `201 Created`: full profile row with the mapped fields.
+Response `201` with the profile row.
 
-#### GET /v1/profiles/:slug
+#### GET /v1/profiles/:slug/export
 
-Profile metadata. Does NOT include the decrypted blob (blobs are only injected into sessions, never returned to bearer clients).
-
-#### GET /v1/profiles/:slug/export?format=playwright
-
-Return the current profile decrypted, in Playwright `storageState` shape. Use this to seed a local Playwright script from a saved profile.
+The profile's current state, decrypted. `?format=native` (the default) returns the same shape as `captured` above; `?format=playwright` returns a Playwright `storageState`. Owner or admin. The response contains live session cookies, so treat it like a password.
 
 #### DELETE /v1/profiles/:slug
 
-Removes the profile record and all its stored versions. Fails with `409 in_use` if a session using it is still open.
+Deletes the profile and all its saved versions. Owner or admin. Response `{ "ok": true, "data": { "slug": "acme-checkout" } }`.
 
-### Sessions + replays
-
-Read-only surfaces over what your router did.
+### Sessions
 
 #### GET /v1/sessions
 
-Query: `?limit=50&cursor=<ts>&state=active|closed|errored&provider=<slug>&since=<ms>`.
+Sessions across the whole workspace, newest first.
 
-Response:
+| Query | Default | Notes |
+|---|---|---|
+| `page` | 1 | |
+| `pageSize` | 25 | Up to 100 |
+| `state` | all | `active`, `closed` or `errored` |
+| `provider` | all | Provider slug on the request's router |
+| `since` | 30 days ago | Unix milliseconds. Up to 180 days back. |
+| `kind` | all | `route` for CDP connections, `agent` for [Cloud MCP](/cloud-mcp) browsers |
+| `routerInstanceId` | all routers | Limit to one router |
 
 ```json
 {
@@ -483,102 +627,147 @@ Response:
         "id": "sess_202609_01H8XY_s0",
         "state": "closed",
         "kind": "route",
-        "provider": { "id": "prv_abc", "slug": "browserless-eu" },
         "startedAt": "2026-09-01T14:00:03.000Z",
         "endedAt": "2026-09-01T14:00:41.000Z",
         "durationMs": 38000,
         "bytesIn": 12488,
         "bytesOut": 3902,
+        "totalBytes": 16390,
+        "messageCount": 214,
         "billedCents": 0,
-        "profileId": null
+        "errorReason": null,
+        "provider": { "id": "prv_abc", "slug": "browserless-eu", "name": "Browserless EU" },
+        "hasRecording": false
       }
     ],
-    "nextCursor": "1735732203000",
-    "total": 1284
+    "total": 1284,
+    "page": 1,
+    "pageSize": 25
   }
 }
 ```
-
-Pagination: pass `nextCursor` back as `cursor`. `nextCursor: null` = end of list.
 
 #### GET /v1/sessions/:id
 
-Full detail on one session: everything above plus per-message counts, error reason (if any), replay id / trace id (if any).
+One session, in the same shape plus `hasReplay`, which is `true` when the session has a trace. `hasRecording` is `true` when it has a video recording.
+
+#### POST /v1/sessions/:id/close
+
+Marks a session that is stuck as active as closed. It does not end the browser on the provider; the provider's own timeout does that. Owner or admin. Response `{ "id", "state": "closed", "closedAt" }`, or `alreadyClosed: true` when it had already ended.
+
+### Recordings
+
+Video recordings of sessions opened with `session_record=true`. See [Recordings](/cloud-cdp#recordings).
 
 #### GET /v1/replays
 
-Session recordings (MP4 or in-progress). Query: `?limit=&cursor=&router=<slug>&sessionLogId=<id>`.
+Recordings from the last 30 days, newest first. Query: `limit` (default 50, up to 200), `session_id`, `routerInstanceId`.
 
 ```json
 {
   "ok": true,
   "data": {
-    "items": [
+    "count": 1,
+    "replays": [
       {
         "id": "rep_abc",
         "sessionLogId": "sess_202609_01H8XY_s0",
+        "routerInstanceId": "ri_main",
+        "providerId": "prv_abc",
+        "profileId": null,
         "startedAt": "2026-09-01T14:00:03.000Z",
         "endedAt": "2026-09-01T14:00:41.000Z",
+        "durationMs": 38000,
         "frameCount": 428,
-        "sizeBytes": 8_842_112,
+        "chunkCount": 3,
+        "sizeBytes": 8842112,
+        "droppedFrames": 0,
+        "duplicatesSkipped": 12,
+        "format": "jpeg",
+        "complete": true,
+        "capStopped": false,
+        "truncated": null,
         "mp4Status": "ready",
+        "mp4SizeBytes": 1204331,
         "mp4ReadyAt": "2026-09-01T14:01:12.000Z",
-        "truncated": null
-      }
-    ],
-    "nextCursor": null
-  }
-}
-```
-
-`mp4Status`: `"queued" | "running" | "ready" | "failed"`.
-`truncated`: `null | "byte-cap" | "wallet-drained"`.
-
-#### GET /v1/replays/:id
-
-Same fields, single row.
-
-#### GET /v1/replays/:id/manifest
-
-Frame-level manifest (chunk list + timing offsets). JSON.
-
-#### GET /v1/replays/:id/mp4
-
-Returns the MP4 bytes (Content-Type `video/mp4`). Response is a redirect to a signed download URL that lives 15 minutes.
-
-If `mp4Status !== "ready"` this returns `409 not_ready` with a body indicating current status.
-
-#### GET /v1/inspections
-
-Observability traces (sessions opened with `observability=true`, which needs a funded wallet). Query: `?router=<slug>&limit=<n>`.
-
-```json
-{
-  "ok": true,
-  "data": {
-    "count": 3,
-    "inspections": [
-      {
-        "id": "ins_abc",
-        "sessionLogId": "sess_...",
-        "startedAt": "2026-09-01T14:00:03.000Z",
-        "endedAt": "2026-09-01T14:00:41.000Z",
-        "eventCount": 128,
-        "sizeBytes": 43_112,
-        "droppedEvents": 0
+        "mp4Error": null
       }
     ]
   }
 }
 ```
 
-#### GET /v1/inspections/:id
+`mp4Status` is `queued`, `running`, `ready` or `failed`. `truncated` is `null`, `byte-cap` or `wallet-drained`.
 
-Full metadata + a signed URL to the gzipped JSONL event stream.
+`GET /v1/replays/:id` returns one recording in the same shape plus `orphaned`.
+
+#### POST /v1/replays/:id/export
+
+Starts encoding the recording to MP4. Encoding already starts on its own when the session ends, so use this when `mp4Status` is `failed` or the video never appeared. Returns `{ "mp4Status": "running" }`, or `alreadyReady: true` when the video exists. A recording still in progress returns `409 not_complete`.
+
+#### GET /v1/replays/:id/export/download
+
+The MP4 file (`Content-Type: video/mp4`). Returns `409 not_ready` until `mp4Status` is `ready`.
+
+#### Frames
+
+The raw frames stay available alongside the video: `GET /v1/replays/:id/manifest` (frame list with timings), `GET /v1/replays/:id/chunks/:index` (one chunk of frames) and `GET /v1/replays/:id/complete` (the end-of-session summary).
+
+#### DELETE /v1/replays/:id
+
+Deletes the recording and its video. Owner or admin.
+
+### Traces
+
+Traces of sessions opened with `observability=true`. See [Traces](/cloud-cdp#traces). These endpoints only show traces from the request's router.
+
+#### GET /v1/inspections
+
+Query: `limit` (default 50, up to 200), `since` (Unix milliseconds, default 24 hours ago).
+
+```json
+{
+  "ok": true,
+  "data": {
+    "count": 1,
+    "inspections": [
+      {
+        "id": "sess_202609_01H8XY_s0",
+        "sessionLogId": "sess_202609_01H8XY_s0",
+        "routerInstanceId": "ri_main",
+        "providerId": "prv_abc",
+        "startedAt": "2026-09-01T14:00:03.000Z",
+        "endedAt": "2026-09-01T14:00:41.000Z",
+        "durationMs": 38000,
+        "eventCount": 128,
+        "sizeBytes": 43112,
+        "droppedEvents": 0,
+        "complete": true
+      }
+    ]
+  }
+}
+```
+
+`GET /v1/inspections/:id` returns one trace in the same shape plus `orphaned`.
+
+#### GET /v1/inspections/:id/events
+
+The trace's events.
+
+- No query: every event as one JSON array.
+- `?page=0`, `?page=1`, ...: one page, `{ "events": [], "page": 0, "pages": 4, "eventCount": 128 }`.
+- `?download=json` or `?download=gz`: the whole trace as a file, plain or gzipped.
+
+While the session is still running this returns `409 trace_in_progress` with `Retry-After: 10`.
+
+#### DELETE /v1/inspections/:id
+
+Deletes the trace. Owner or admin.
 
 ### Webhooks
 
-Per-router event dispatchers. Signed with HMAC-SHA256.
+Webhooks belong to the workspace. Each one can be limited to one router with `routerInstanceId`; leave it `null` to receive events from every router.
 
 #### GET /v1/webhooks
 
@@ -588,62 +777,91 @@ Per-router event dispatchers. Signed with HMAC-SHA256.
   "data": {
     "items": [
       {
-        "id": "wh_abc",
-        "url": "https://your.app/hooks/bg",
-        "events": ["session.ended", "replay.ready"],
+        "id": "whk_abc",
+        "workspaceId": "ws_personal",
+        "routerInstanceId": null,
+        "label": "Session alerts",
+        "url": "https://your.app/hooks/bg/3f9c2a7e",
+        "events": ["session.ended", "session.error"],
         "active": true,
         "createdAt": "2026-08-01T09:00:00.000Z",
-        "lastDeliveryAt": "2026-09-01T14:01:12.000Z",
-        "lastDeliveryStatus": "ok"
+        "updatedAt": "2026-08-01T09:00:00.000Z",
+        "lastDeliveredAt": "2026-09-01T14:01:12.000Z",
+        "lastFailureAt": null,
+        "lastFailureReason": null
       }
-    ]
+    ],
+    "total": 1,
+    "page": 1,
+    "pageSize": 1
   }
 }
 ```
 
-Secret is not returned (write-once, shown at create time).
+`GET /v1/webhooks/:id` returns one webhook in the same shape.
 
 #### POST /v1/webhooks
 
 ```json
 {
-  "url": "https://your.app/hooks/bg",
-  "events": ["session.ended", "replay.ready"]
+  "label": "Session alerts",
+  "url": "https://your.app/hooks/bg/3f9c2a7e",
+  "events": ["session.ended", "session.error"],
+  "routerInstanceId": null
 }
 ```
 
-Response `201 Created`:
+`label` and `url` are required. Omit `events` to receive every event. Response `201` with the webhook row.
+
+#### Events
+
+| Event | Sent when |
+|---|---|
+| `session.ended` | A CDP or agent session closes normally |
+| `session.error` | A CDP or agent session closes with an error |
+
+The API also accepts `session.started`, `provider.up`, `provider.down`, `provider.cooldown`, `credit.low`, `credit.exhausted` and `workspace.suspended` in `events`, but none of these is sent today. Data API calls and playground sessions do not send webhooks. Nothing is sent for a router whose Webhooks switch is off.
+
+Each delivery is a `POST` with this body:
 
 ```json
 {
-  "ok": true,
+  "version": "1",
+  "timestamp": "2026-09-01T14:00:41.000Z",
+  "event": "session.ended",
+  "status": "resolved",
+  "source": "browser-gateway/cloud",
   "data": {
-    "id": "wh_new",
-    "url": "https://your.app/hooks/bg",
-    "events": ["session.ended", "replay.ready"],
-    "secret": "whsec_v1_abc123...",
-    "active": true
+    "sessionId": "sess_202609_01H8XY_s0",
+    "providerSlug": "browserless-eu",
+    "durationMs": 38000,
+    "bytesIn": 12488,
+    "bytesOut": 3902,
+    "billedCents": 0,
+    "errored": false
   }
 }
 ```
 
-Store `secret` immediately. It is used to verify HMAC signatures on delivery. Never returned again.
+`status` is `resolved` for `session.ended` and `firing` for `session.error`, which also carries `errorReason`. A delivery that does not get a 2xx response within 5 seconds is retried three times, after 0.5, 2 and 8 seconds.
 
-#### PUT /v1/webhooks/:id
+Deliveries are not signed. To make sure a request came from us, put an unguessable secret in the webhook URL (a long random path segment or query parameter), check it on your side, and use an `https://` URL.
 
-Partial update. Any subset of `url`, `events`, `active`.
+#### PATCH /v1/webhooks/:id
+
+Any subset of `label`, `url`, `events`, `routerInstanceId` and `active`.
 
 #### DELETE /v1/webhooks/:id
 
-Remove.
+Response `{ "ok": true, "data": { "id": "whk_abc" } }`.
 
 #### POST /v1/webhooks/:id/test
 
-Fire a synthetic `webhook.test` event to the configured URL. Response includes the delivery attempt outcome.
+Sends one `webhook.test` event, without retries. Response `{ "delivered": true, "attempts": 1 }`.
 
 ### Billing
 
-Read-only via bearer. Top-up requires cookie session (see [Cookie-only](#cookie-only-endpoints)).
+Money amounts are in US cents (`...Cents`) or in thousandths of a cent (`...Millicents`, 100,000 per dollar).
 
 #### GET /v1/billing/summary
 
@@ -659,18 +877,21 @@ Read-only via bearer. Top-up requires cookie session (see [Cookie-only](#cookie-
       "endsAt": "2026-10-01T00:00:00.000Z"
     },
     "sessions": {
-      "usedCount": 1_244,
-      "includedCount": 10_000,
-      "usedPct": 0.124,
+      "usedCount": 1244,
+      "includedCount": 10000,
+      "usedPct": 0.1244,
       "overageRateCents": 0.05
     },
     "wallet": {
       "balanceUsdCents": 8721,
       "minTopupCents": 500,
-      "maxTopupCents": 2_500_000,
+      "maxTopupCents": 2500000,
       "cardFeePercent": 0,
       "cardFeeBasisPoints": 0,
-      "cardFeeFixedCents": 0
+      "cardFeeFixedCents": 0,
+      "cryptoFeePercent": 0,
+      "cryptoFeeBasisPoints": 0,
+      "cryptoFeeFixedCents": 0
     },
     "rates": {
       "recordingPerMinuteCents": 0.7,
@@ -680,9 +901,11 @@ Read-only via bearer. Top-up requires cookie session (see [Cookie-only](#cookie-
 }
 ```
 
+`GET /v1/credits/balance` returns only the balance: `{ "workspaceId", "balanceUsdCents", "updatedAt" }`.
+
 #### GET /v1/billing/usage
 
-Query: `?days=30` (max 90).
+Query: `days` (default 30, up to 90).
 
 ```json
 {
@@ -690,29 +913,44 @@ Query: `?days=30` (max 90).
   "data": {
     "days": 30,
     "series": [
-      { "day": "2026-09-01", "sessions": 128, "bytesIn": 8912, "bytesOut": 2211, "totalBytes": 11123, "billedCents": 12, "errored": 0 }
+      {
+        "day": "2026-09-01",
+        "sessions": 128,
+        "bytesIn": 8912,
+        "bytesOut": 2211,
+        "totalBytes": 11123,
+        "billedCents": 0,
+        "billedMillicents": 12000,
+        "errored": 0
+      }
     ],
-    "totals": { "sessions": 12442, "bytes": 1_298_112, "billedCents": 4218, "errored": 4 },
+    "totals": { "sessions": 12442, "bytes": 1298112, "billedCents": 0, "billedMillicents": 4218000, "errored": 4 },
     "breakdown": {
-      "sessionCents": 3200,
-      "restCallCents": 118,
-      "recordingCents": 800,
-      "observabilityCents": 100,
-      "byokOverageCents": 0,
-      "resellerCents": 0,
-      "topupCents": 10000,
-      "refundCents": 0,
-      "grantCents": 0
+      "sessionMillicents": 0,
+      "recordingMillicents": 800000,
+      "observabilityMillicents": 100000,
+      "byokOverageMillicents": 0,
+      "resellerMillicents": 0,
+      "topupMillicents": 10000000,
+      "refundMillicents": 0,
+      "grantMillicents": 0
     }
   }
 }
 ```
 
+`billedMillicents` is what was drawn from the wallet that day.
+
 #### GET /v1/billing/ledger
 
-Every wallet mutation this period. Query: `?limit=50&cursor=<tsMs>&kind=<kind>&months=<1..12>`.
+Wallet activity rolled up per day and kind.
 
-`kind` filter values: `session | rest_call | recording | observability | byok_overage | reseller | topup | refund | grant`.
+| Query | Default | Notes |
+|---|---|---|
+| `limit` | 90 | Up to 400 rows |
+| `months` | 3 | 1 to 12 |
+| `kind` | all | `session`, `recording`, `observability`, `byok_overage`, `reseller`, `topup`, `refund`, `grant` |
+| `sinceDay` | none | `YYYY-MM-DD` |
 
 ```json
 {
@@ -720,38 +958,23 @@ Every wallet mutation this period. Query: `?limit=50&cursor=<tsMs>&kind=<kind>&m
   "data": {
     "rows": [
       {
-        "id": "led_abc",
         "workspaceId": "ws_personal",
-        "tsMs": 1735732203000,
-        "kind": "rest_call",
-        "amountCents": -1,
-        "balanceAfterCents": 8720,
-        "refKind": "rest_call",
-        "refId": null,
-        "metaJson": "{\"endpoint\":\"screenshot\",\"uncollectedCents\":0}"
-      },
-      {
-        "id": "led_def",
-        "workspaceId": "ws_personal",
-        "tsMs": 1735731000000,
-        "kind": "topup",
-        "amountCents": 10000,
-        "balanceAfterCents": 8721,
-        "refKind": "order",
-        "refId": "ord_xyz",
-        "metaJson": "{\"provider\":\"paddle\",\"providerTxnId\":\"txn_...\"}"
+        "day": "2026-09-01",
+        "kind": "recording",
+        "count": 4,
+        "totalMillicents": -84000,
+        "updatedAt": 1756735200000
       }
-    ],
-    "nextCursor": "1735730100000"
+    ]
   }
 }
 ```
 
-`amountCents` is negative for debits, positive for credits.
+Rows are sorted newest day first. `totalMillicents` is negative for charges and positive for top-ups and grants.
 
 #### GET /v1/billing/transactions
 
-Top-ups + refunds (from the `order` table, distinct from the ledger which is broader).
+The workspace's last 100 top-ups and refunds:
 
 ```json
 {
@@ -775,15 +998,17 @@ Top-ups + refunds (from the `order` table, distinct from the ledger which is bro
 }
 ```
 
-#### GET /v1/billing/transactions/:providerTxnId
+`GET /v1/billing/transactions/:providerTxnId` returns one transaction by its payment processor id.
 
-Single transaction detail. Useful for reconciling a Paddle event ID.
+#### POST /v1/billing/checkout
 
-### Account (tokens)
+Starts a wallet top-up: `{ "topupUsdCents": 2000 }` (500 to 2,500,000). Returns `{ "checkoutUrl", "creditCents", "feeCents", "chargeCents" }`; open `checkoutUrl` in a browser to pay. An invalid amount returns `{ "ok": false, "error": "bad_request" }`.
+
+### Access tokens
 
 #### GET /v1/access-tokens
 
-Your bearer tokens (metadata only; plaintext is never returned).
+Your account tokens, metadata only:
 
 ```json
 {
@@ -792,50 +1017,53 @@ Your bearer tokens (metadata only; plaintext is never returned).
     "items": [
       {
         "id": "aat_abc",
-        "prefix": "bga_JLNh",
         "label": "ci-runner",
-        "createdAt": "2026-08-25T14:12:11.000Z",
+        "prefix": "bga_JLNh3kQ2",
+        "scopes": "account:full",
         "lastUsedAt": "2026-09-01T14:03:22.000Z",
-        "rotatedAt": null,
-        "expiresAt": null
+        "revokedAt": null,
+        "createdAt": "2026-08-25T14:12:11.000Z"
       }
     ],
-    "cap": 20
+    "total": 1,
+    "cap": 10
   }
 }
 ```
 
-Token create / rotate / revoke are cookie-only (see below).
+`lastUsedAt` updates at most once an hour. Creating, rotating, revoking and deleting tokens needs a cookie session (see below).
+
+### Account
+
+#### DELETE /v1/account
+
+Marks your account for deletion, together with the workspaces you own alone, and signs you out. You have 30 days to undo it with `POST /v1/account/undelete`; after that the account is removed. If you own a workspace that has other members, this returns `409 workspaces_have_other_members`: delete those workspaces first.
 
 ## Cookie-only endpoints
 
-A short list of high-risk endpoints reject bearer tokens with HTTP 403 and require an active browser session. Bearer requests to these get:
+These endpoints refuse bearer tokens and need a signed-in dashboard session:
+
+- `POST /v1/access-tokens`: create an account token
+- `POST /v1/access-tokens/:id/rotate`: rotate an account token
+- `POST /v1/access-tokens/:id/revoke`: revoke an account token
+- `DELETE /v1/access-tokens/:id`: delete an account token
+- `DELETE /v1/workspaces/current`: delete the workspace
+- `DELETE /v1/workspaces/current/members/:userId`: remove a member
+- `POST /v1/invitations`: invite a member
+
+A bearer request to one of them gets:
 
 ```json
 { "ok": false, "error": { "code": "cookie_required", "message": "This endpoint requires a session cookie, not a bearer token." } }
 ```
 
-Cookie-only paths:
-
-- `POST /v1/access-tokens`: create a new bearer token
-- `POST /v1/access-tokens/:id/rotate`: rotate a bearer token
-- `POST /v1/access-tokens/:id/revoke`: revoke a bearer token
-- `DELETE /v1/access-tokens/:id`: delete a bearer token
-- `GET /v1/api-keys/current/plaintext`: fetch the current router-key plaintext (used by the dashboard's autofill)
-- `DELETE /v1/workspaces/current`: delete the workspace
-- `DELETE /v1/workspaces/current/members/:userId`: remove a member
-- `POST /v1/workspaces/current/invitations`: invite a member
-- `POST /v1/billing/checkout`: start a wallet top-up
-
-The reason: a leaked bearer must not be able to escalate its own permissions, drain the wallet, or remove people. These flows require you to be present at the dashboard.
-
 ## Rotating and deleting access tokens
 
-Rotating an access token (via the dashboard) gives the same token a new value. The row keeps its label and creation date, and the old value returns 401 immediately, so update every place that uses it right after rotating.
+Rotating an account token gives it a new value. The token keeps its label and creation date, and the old value returns 401 immediately, so update every place that uses it right after rotating.
 
 Revoking switches a token off but keeps it in the list. Deleting removes it from the list, whether it is active or revoked.
 
-Router keys (`POST /v1/api-keys/rotate`) work differently: the previous key keeps working for 24 hours.
+Router key rotation (`POST /v1/api-keys/rotate`) also takes effect immediately: every live key on the router stops working.
 
 ## End-to-end example
 
@@ -844,36 +1072,21 @@ List your profiles, create a new one, and read it back:
 ```bash
 BASE=https://app-api.browsergateway.com/v1
 TOKEN=bga_YOUR_TOKEN_HERE
+WS=ws_YOUR_WORKSPACE_ID
 
-curl -s "$BASE/profiles" -H "Authorization: Bearer $TOKEN" | jq
+curl -s "$BASE/profiles" -H "Authorization: Bearer $TOKEN" -H "X-Workspace-Id: $WS" | jq
 
 curl -s -X POST "$BASE/profiles" \
   -H "Authorization: Bearer $TOKEN" \
+  -H "X-Workspace-Id: $WS" \
   -H "Content-Type: application/json" \
-  -d '{"slug":"acme-checkout","name":"Acme checkout state","captured":null}' | jq
+  -d '{"slug":"acme-checkout","name":"Acme checkout state"}' | jq
 
-curl -s "$BASE/profiles" -H "Authorization: Bearer $TOKEN" | jq '.data.items[] | .slug'
+curl -s "$BASE/profiles" -H "Authorization: Bearer $TOKEN" -H "X-Workspace-Id: $WS" | jq '.data.items[] | .slug'
 ```
-
-## Rate limits
-
-Bearer-authenticated calls are capped per workspace per day:
-
-| Account state | Daily cap |
-|---|---|
-| Free (no top-up) | 5 000 |
-| Paid (any top-up) | 100 000 |
-| Enterprise | Contract-negotiated |
-
-Over-cap responses are `429 Too Many Requests` with a `Retry-After` header and a reset ISO timestamp in the body. Every allowed response includes `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset` (Unix seconds).
-
-Session-cookie traffic from the dashboard is exempt; the caps apply only to programmatic bearer clients.
-
-Workspace-wide fair-use caps (BYOK sessions per month, profile count, router count) still apply. See [Billing](/billing).
 
 ## What's not on this API
 
-- **Opening a CDP session.** Use `wss://cdp.browsergateway.io/v1/connect?token=...` with a **router key**, not a bearer.
-- **One-shot browser actions** (screenshot / content / scrape). Those live on the [Cloud Data API](/cloud-data-api) at `cdp.browsergateway.io/v1/*` and each successful call counts as one BYOK session against the 10,000/mo ceiling.
-- **Self-hosted gateway management.** That's `http://your-host:9500/v1/*` with `BG_TOKEN`. See [Gateway REST API](/rest-api).
-- **Admin operations** (workspace provisioning and other operator tasks). Internal only.
+- **Opening a browser session.** Use the [Cloud CDP endpoint](/cloud-cdp) with a **router key**, not a bearer.
+- **One-shot browser actions** (screenshot, content, scrape). Those live on the [Cloud Data API](/cloud-data-api), and each successful call counts as one session against the 10,000 per month ceiling.
+- **Self-hosted gateway management.** That is `http://your-host:9500/v1/*` with `BG_TOKEN`. See [Gateway REST API](/rest-api).
