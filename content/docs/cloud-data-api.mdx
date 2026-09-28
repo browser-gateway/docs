@@ -13,15 +13,15 @@ Three HTTPS endpoints on `cdp.browsergateway.io` that return page data directly,
 | `POST /v1/content` | JSON with page content in one or more formats | 10 MB |
 | `POST /v1/scrape` | JSON with CSS-selector matches, optional formats and screenshot | 5 MB |
 
-Every successful call counts as one BYOK session against your monthly ceiling (10,000 sessions per month, free). Errors (4xx and 5xx responses) never count. Above the ceiling each session drains `$0.0005` from wallet.
+Every successful call counts as one BYOK session against your monthly ceiling (10,000 sessions per month, free). Errors (4xx and 5xx responses) never count. Above the ceiling each call costs `$0.0005` from the wallet.
 
 This is a distinct surface from two others on the platform:
 
 | Surface | Base URL | Auth | Purpose |
 |---|---|---|---|
 | **Cloud Data API** (this page) | `https://cdp.browsergateway.io/v1` | Router key `Bearer bg_...` | One-shot browser actions |
-| [**Cloud CDP endpoint**](/) | `wss://cdp.browsergateway.io/v1/connect?token=bg_...` | Router key in query string | Full CDP session for Puppeteer / Playwright |
-| [**Cloud Control API**](/cloud-rest-api) | `https://app-api.browsergateway.com/v1` | Account token `Bearer bga_...` | Manage workspaces, providers, billing |
+| [**Cloud CDP endpoint**](/cloud-cdp) | `wss://cdp.browsergateway.io/v1/connect?token=bg_...` | Router key in query string | Full CDP session for Puppeteer / Playwright |
+| [**Cloud REST API**](/cloud-rest-api) | `https://app-api.browsergateway.com/v1` | Account token `Bearer bga_...` | Manage workspaces, providers, billing |
 
 The router key and the account token are separate systems. The router key powers CDP + Data API; the account token powers the control-plane API.
 
@@ -44,22 +44,42 @@ curl -X POST "https://cdp.browsergateway.io/v1/screenshot?token=bg_YOUR_ROUTER_K
   -d '{"url":"https://example.com"}'
 ```
 
-The router key is the same one you paste into Puppeteer or Playwright for CDP connections. Find it on the **Keys** page in the dashboard.
+The router key is the same one you paste into Puppeteer or Playwright for CDP connections. Find it on the **Keys & access** page in the dashboard. The key decides which router, and so which providers, serve the call.
 
 ## Billing
 
-Every successful call = one BYOK session. First 10,000 sessions per month are free across your workspace (CDP + Data API combined). Overage draws `$0.0005` per session from wallet.
+Every successful call = one BYOK session. First 10,000 sessions per month are free across your workspace (CDP + Data API combined). Above that, each call draws `$0.0005` from the wallet.
+
+Data API calls are not refused when the workspace is over the ceiling with an empty wallet. The charge is still recorded, the balance goes below zero, and the next top-up settles it. See [Billing](/billing#negative-balance-during-a-burst).
+
+Data API calls share the same monthly ceiling as [CDP sessions](/cloud-cdp). Pick whichever interface fits your code; both count the same way toward the ceiling.
+
+## Responses and errors
 
 | Response | Meaning | Counts as session? |
 |---|---|---|
 | 200 | Success | Yes |
-| 400 | Validation error or provider not configured | No |
-| 402 | Over ceiling, wallet empty | No. Call rejected before browser spawn. |
-| 408 | 30-second wall-clock timeout | No |
+| 400 | Validation error, no providers on the router, or `provider` is not on this router | No |
+| 401 | Missing or wrong router key | No |
+| 408 | The page or the provider connection timed out | No |
 | 413 | Response body exceeded the endpoint cap | No |
-| 503 | No provider available (all in cooldown or at capacity) | No |
+| 429 | The router queue timed out waiting for a free provider (honour `Retry-After`), or too many failed auth attempts came from your IP | No |
+| 500 | The browser action failed | No |
+| 503 | No provider available (all switched off, cooling down or at capacity), every provider failed to connect, or the router queue is full | No |
 
-Data API calls share the same monthly ceiling as `/v1/connect` CDP sessions. Pick whichever interface fits your code; the meter treats them identically.
+Error bodies are JSON:
+
+```json
+{ "success": false, "error": "Provider 'browserserve-eu' unavailable (in cooldown or at capacity)" }
+```
+
+Validation errors add a `details` array. The two auth errors (401 and the 429 for failed attempts) are plain text.
+
+Every successful response names the provider that served it in the `X-Provider-Slug` header. `/v1/content` and `/v1/scrape` also return it as `provider` in the JSON body.
+
+## Timeouts
+
+`timeout` is the navigation timeout in milliseconds: default `30000`, from `1000` to `120000`. The whole request is allowed `timeout` plus 20 seconds, to cover connecting to the provider and sending the response. Raise `timeout` for slow pages or slow providers if you see 408 responses.
 
 ## /v1/screenshot
 
@@ -94,7 +114,7 @@ Request body:
 | `waitUntil` | string | `"domcontentloaded"` | `load`, `domcontentloaded`, `networkidle`, `commit` |
 | `waitForSelector` | string |  | Wait for this selector after navigation (10 s cap) |
 | `waitForTimeout` | number |  | Extra ms to wait after load (0 to 30000) |
-| `timeout` | number | `30000` | Total navigation timeout (1000–60000) |
+| `timeout` | number | `30000` | Navigation timeout in ms (1000 to 120000). See [Timeouts](#timeouts). |
 | `headers` | object |  | Extra HTTP request headers |
 | `userAgent` | string |  | Override the browser's user agent |
 
@@ -104,7 +124,8 @@ Response headers:
 - `X-Response-Code`: upstream HTTP status of the navigated page
 - `X-Response-URL`: final URL after any redirects
 - `X-Timing-Total-Ms`: end-to-end wall clock
-- `X-Timing-Navigation-Ms`: time spent on `page.goto`
+- `X-Timing-Navigation-Ms`: time spent on navigation
+- `X-Provider-Slug`: the provider that served the call
 
 ## /v1/content
 
@@ -128,6 +149,7 @@ Response shape:
 ```json
 {
   "success": true,
+  "provider": "browserless-eu",
   "data": {
     "url": "https://example.com/",
     "statusCode": 200,
@@ -182,6 +204,7 @@ Response shape:
 ```json
 {
   "success": true,
+  "provider": "browserless-eu",
   "data": {
     "url": "https://example.com/",
     "statusCode": 200,
@@ -198,18 +221,9 @@ Response shape:
 }
 ```
 
-## Profile support
+## Profiles are not supported
 
-All three endpoints accept an optional `profile` field. When set, the request runs with the saved cookies and localStorage of that profile, and captures the latest state on success. Retries are disabled when a profile is pinned (one-shot; retries could double-commit state).
-
-```json
-{
-  "url": "https://app.example.com/dashboard",
-  "profile": "acme-user-123"
-}
-```
-
-Profile pinning requires the workspace to have profiles enabled and the requested profile to exist. If the profile is locked by another concurrent session, the response is HTTP 409.
+The request schema accepts a `profile` field, but the cloud Data API ignores it: calls always run in a fresh browser without saved cookies or storage. To run with a saved profile, connect through the [Cloud CDP endpoint](/cloud-cdp) with `?profile=<slug>`.
 
 ## Provider pinning
 
@@ -222,7 +236,7 @@ Pass `provider` to route the request to one specific backend (no failover):
 }
 ```
 
-If the pinned provider is in cooldown or at capacity, the response is HTTP 503 with no failover attempted.
+If the pinned provider is not on the router, the response is HTTP 400. If it is cooling down or at capacity, the response is HTTP 503 with no failover attempted.
 
 ## Try it from the dashboard
 
