@@ -178,7 +178,7 @@ Omitting `enabled` means the provider is on.
 
 Every provider has a real concurrency ceiling. Set `maxConcurrent` to the smaller of what the provider actually handles and what you have paid for.
 
-### Browserless (self-hosted or Railway)
+### Browserless (self-hosted)
 
 The `ghcr.io/browserless/chromium` container on an 8 GB / 8 vCPU host holds **5 concurrent sessions safely, with 6 as the absolute ceiling**. Above 6, incoming sessions serialize inside Browserless's internal multiplexer and clients start hitting timeouts.
 
