@@ -7,15 +7,15 @@ Applies to `app.browsergateway.com` (cloud). The OSS `browser-gateway` npm packa
 
 ## The model in one paragraph
 
-No subscriptions. You start free. Everything that costs us real money (session recording, observability broadcast, BYOK usage above the monthly ceiling) draws from your wallet at a published per-unit rate. When you want more, you top up. The amount you top up is exactly the amount added to your wallet: we absorb the card processing cost. Our revenue comes from margin on the metered features you use. Your browser provider bill (Browserless, Steel, Browserbase, Lightpanda, Cloudflare Browser Rendering, or your own runtime) is separate.
+No subscriptions. You start free. Everything that costs us real money (session recording, session traces, BYOK usage above the monthly ceiling) draws from your wallet at a published per-unit rate. When you want more, you top up. The amount you top up is exactly the amount added to your wallet: we absorb the card processing cost. Our revenue comes from margin on the metered features you use. Your browser provider bill (Browserless, Steel, Browserbase, Lightpanda, Cloudflare Browser Rendering, or your own runtime) is separate.
 
 ## Account states
 
 | State | How you get here |
 |---|---|
-| **Free** | Signed up, no top-up yet. Uses free features up to fair-use limits. |
-| **Paid** | You have credit balance greater than zero from a top-up. |
-| **Enterprise** | You have a contract with us. Higher ceilings, custom retention, SSO, SLAs. |
+| **Free** | Your wallet balance is zero or below. Free features work up to fair-use limits. |
+| **Paid** | Your wallet balance is above zero. A workspace that spends its balance down to zero is Free again until the next top-up. |
+| **Enterprise** | You have a contract with us. |
 
 You do NOT need to be on a specific "plan" to use the product. Every account gets free BYOK routing. Metered features unlock when your wallet has balance.
 
@@ -24,45 +24,38 @@ You do NOT need to be on a specific "plan" to use the product. Every account get
 Free without any wallet balance:
 
 - **BYOK routing**: 10,000 sessions per month included on your own browser providers.
-- **REST API calls** (screenshot / content / scrape) count against the same 10,000-session ceiling.
+- **[Cloud Data API](/cloud-data-api) calls** (screenshot, content, scrape) count against the same 10,000-session ceiling.
+- **[Cloud REST API](/cloud-rest-api)**: up to 5,000 calls per day with an account token.
 - **Bandwidth**: unlimited, no meter.
 - **All routing strategies**: priority-chain, round-robin, least-connections, weighted, latency-optimized.
 - **Multi-provider failover**.
 - **Live playground**.
-- **Up to 100 saved profiles**, 10 MB per profile, 500 MB total per workspace.
+- **Up to 500 saved profiles**, 10 MB per profile, 500 MB total per workspace.
 - **60-day session log retention**.
 
-A zero-balance wallet does not unlock session recording, observability broadcast to external tools, or the account REST API.
+A zero-balance wallet does not unlock session recording or session traces.
 
 ## What a positive wallet balance unlocks
 
 Anything below requires wallet balance greater than zero. Charges draw at session close:
 
-- **Session recording** at `$0.007` per minute of encoded video, drawn from wallet.
-- **Observability broadcast** at `$0.05` per 1,000 events, drawn from wallet.
-- **[Cloud REST API](/cloud-rest-api)** with a raised daily cap (100,000 calls/day up from 5,000).
-- **BYOK sessions above the 10,000/mo ceiling** at `$0.0005` per session, drawn from wallet. REST API calls count as sessions and share this ceiling.
+- **Session recording** at `$0.007` per minute of encoded video, billed per second.
+- **Session traces** (`observability=true`) at `$0.05` per 1,000 captured events.
+- **[Cloud REST API](/cloud-rest-api)** with a raised daily cap: 100,000 calls per day, up from 5,000.
+- **BYOK sessions above the 10,000/mo ceiling** at `$0.0005` per session. Data API calls count as sessions and share this ceiling.
 
-## What Enterprise adds
+## Enterprise
 
-Enterprise is a contract, not a self-serve plan:
-
-- Raised BYOK ceiling (contract-negotiated).
-- Volume-based discounts on metered rates (recording, observability broadcast, BYOK overage).
-- SSO / SAML.
-- Admin controls.
-- Custom retention: 60d, 90d, 180d, or 365d for session logs, replays, and observability.
-- Contractual SLAs.
-- Shared Slack support channel.
+Enterprise is a contract, not a self-serve plan. By contract we can offer a raised BYOK ceiling, volume discounts on metered rates, longer retention for session logs, recordings and traces, SSO / SAML, admin controls and contractual SLAs. Contact `sales@browsergateway.com`.
 
 ## Per-unit pricing
 
 | Item | Rate |
 |---|---|
-| BYOK routing (CDP + REST calls combined) | Free up to 10,000 sessions/mo, `$0.0005`/session above |
+| BYOK routing (CDP sessions and Data API calls combined) | Free up to 10,000 sessions/mo, `$0.0005`/session above |
 | Bandwidth | Free, unlimited |
-| Session recording | `$0.007` per minute of encoded video |
-| Observability broadcast | `$0.05` per 1,000 events |
+| Session recording | `$0.007` per minute of encoded video, billed per second |
+| Session traces (observability) | `$0.05` per 1,000 events |
 | Wallet top-up fee | None. You pay what you top up. |
 | Minimum top-up | `$5` |
 | Maximum top-up | `$25,000` per transaction |
@@ -72,33 +65,34 @@ Enterprise is a contract, not a self-serve plan:
 - Wallet balance is denominated in US dollars.
 - Purchased balance carries across periods.
 - No signup credit.
-- Refunds available within 24 hours of transaction, unused balance only.
+- You can request a full refund of a credit purchase within 14 days of the purchase. See the [Refund Policy](https://app.browsergateway.com/refund).
 - Payments processed by Paddle, our Merchant of Record.
 
 ## Retention
-
-Flat for all accounts. Enterprise contracts can extend.
 
 | Resource | Retention |
 |---|---|
 | Session logs | 60 days |
 | Session recordings | 30 days |
-| Observability event traces | 60 days |
+| Session traces | 60 days |
 | Profiles | Kept indefinitely |
 
 ## When your wallet hits zero
 
-- Recording and observability broadcast requests return HTTP 402 at CDP connect time.
+- CDP connects that ask for recording (`session_record=true`) or traces (`observability=true`) return HTTP 402.
 - BYOK routing continues free below the 10,000/mo ceiling.
-- BYOK routing above the ceiling returns HTTP 402 until you top up.
+- Above the ceiling, CDP connects return HTTP 402 until you top up. [Data API](/cloud-data-api) calls are not refused: each one is still charged `$0.0005`, and the balance goes below zero.
+- The Cloud REST API drops to 5,000 calls per day.
 - All other free features stay available.
 
-Recordings and observability captures that were already in progress when the balance hit zero stop cleanly. The session itself keeps running.
+Recordings and traces that were in progress when the balance ran out stop cleanly. The session itself keeps running.
+
+A connect that asks for recording or traces on a router whose **Recording** or **Traces** switch is off returns HTTP 409, whatever the balance. See [Router switches](/cloud-cdp#router-switches).
 
 ## Negative balance during a burst
 
 Our enforcement runs at the edge with a cache that refreshes within about a minute. Under a burst of concurrent metered sessions right as your wallet hits zero, a small amount of usage can slip through before enforcement kicks in. Your balance will show as negative for the difference.
 
-The negative balance is a record, not a bill: **the next top-up deducts the negative amount before crediting your wallet.** For example, a wallet at `-$0.30` topped up by `$5` becomes `$4.70`. No penalty, no separate invoice. This matches how OpenAI, Anthropic, and OpenRouter handle the same class of burst.
+The negative balance is a record, not a bill: **the next top-up deducts the negative amount before crediting your wallet.** For example, a wallet at `-$0.30` topped up by `$5` becomes `$4.70`. No penalty, no separate invoice.
 
-While your balance is negative, metered features (recording, observability, BYOK sessions above the monthly ceiling) return HTTP 402 at connect time until you top up. Free BYOK routing under the ceiling stays available.
+While your balance is negative, recording, traces and CDP sessions above the monthly ceiling return HTTP 402 at connect time until you top up. Free BYOK routing under the ceiling stays available.
