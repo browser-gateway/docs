@@ -3,7 +3,7 @@ title: "Cloud MCP"
 description: "Connect Claude, ChatGPT, Cursor, Codex and other AI agents to hosted browsers on browsergateway.com, with recording, traces and saved profiles per browser."
 ---
 
-The cloud runs an MCP (Model Context Protocol) server for your workspace. Any agent that supports remote MCP servers can connect to it and get real browsers routed through your providers, with the same routing, failover, profiles, recording and billing as a [CDP connection](/cloud-rest-api#what-it-is). Nothing is installed on your machine.
+The cloud runs an MCP (Model Context Protocol) server for your workspace. Any agent that supports remote MCP servers can connect to it and get real browsers routed through your providers, with the same routing, failover, profiles, recording and billing as a [CDP connection](/cloud-cdp). Nothing is installed on your machine.
 
 Running the server yourself instead? See [MCP Server](/mcp).
 
@@ -150,8 +150,8 @@ Each browser can be recorded, traced or started from a saved profile. The agent 
 
 | Option on `browser_session` open | What it does |
 |---|---|
-| `record: true` | Records the browser as a video. See [Replays](/replays). |
-| `observability: true` | Captures network requests, console output and navigations as a trace. |
+| `record: true` | Records the browser as a video. See [Recordings](/cloud-cdp#recordings). |
+| `observability: true` | Captures network requests, console output and navigations as a trace. See [Traces](/cloud-cdp#traces). |
 | `profile: "work"` | Starts from the saved profile `work`, so the browser is already signed in. See [Profiles](/profiles). |
 | `saveProfile: true` | Writes cookies and storage back to the profile when the browser closes. |
 
@@ -163,7 +163,7 @@ Agent sessions show an **Agent** label in the Sessions list and on the Overview.
 
 ## Limits and billing
 
-- A browser closes after 5 minutes without a tool call. An agent can ask for 1 to 5 minutes with `idleMinutes` when it opens one.
+- A browser closes after a period without a tool call. The default is the router's idle timeout (Settings, Routers), limited to between 1 and 5 minutes; a new router's default gives 5 minutes. An agent can ask for 1 to 5 minutes with `idleMinutes` when it opens one.
 - Every browser closes after 4 hours.
 - One browser is billed as one session, however many tool calls it serves.
 - Recording and traces are paid from your wallet at the same rates as CDP sessions. With an empty wallet, opening a browser that records or traces returns an error; browsers without them still open. See [Billing](/billing).
