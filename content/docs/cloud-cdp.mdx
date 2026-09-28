@@ -1,0 +1,135 @@
+---
+title: "Cloud CDP endpoint"
+description: "Connect Puppeteer, Playwright or any CDP client to browsergateway.com with a router key, and add profiles, recording and traces per session."
+---
+
+The cloud CDP endpoint is where your automation code connects. Each connection is routed to one of the providers on your router, with the router's strategy, failover and queue applied, and billed as one session.
+
+```
+wss://cdp.browsergateway.io/v1/connect?token=bg_YOUR_ROUTER_KEY
+```
+
+The router key is on the **Keys & access** page of the dashboard. It identifies both the workspace and the router, so the same code routes to a different set of providers when you switch keys. The key can also be sent as an `Authorization: Bearer bg_...` header instead of the `token` query parameter.
+
+The router key is not the account token (`bga_...`) used by the [Cloud REST API](/cloud-rest-api). The same router key also works for the [Cloud Data API](/cloud-data-api) and the [Cloud MCP](/cloud-mcp) server.
+
+## Connect
+
+Puppeteer:
+
+```js
+import puppeteer from "puppeteer-core";
+
+const browser = await puppeteer.connect({
+  browserWSEndpoint: "wss://cdp.browsergateway.io/v1/connect?token=bg_YOUR_ROUTER_KEY",
+});
+const page = await browser.newPage();
+await page.goto("https://en.wikipedia.org/wiki/Web_browser");
+await browser.close();
+```
+
+Playwright:
+
+```js
+import { chromium } from "playwright-core";
+
+const browser = await chromium.connectOverCDP(
+  "wss://cdp.browsergateway.io/v1/connect?token=bg_YOUR_ROUTER_KEY",
+);
+```
+
+A successful connection returns two response headers: `X-Session-Id` (the id shown on the Sessions page) and `X-Provider` (the provider the session was routed to).
+
+## Query options
+
+| Parameter | Effect |
+|---|---|
+| `token=bg_...` | Router key. Required unless sent as a bearer header. |
+| `provider=<slug>` | Route only to this provider. No failover to other providers. |
+| `profile=<slug>` | Start from a saved profile and save changes back to it when the session ends. A slug that does not exist yet is created as an empty profile. See [Profiles](#profiles). |
+| `readOnly=1` | With `profile`, load the profile without saving changes back. |
+| `session_record=true` | Record the session as video. Needs wallet balance. See [Recordings](#recordings). |
+| `observability=true` | Capture a trace of network requests, console output and navigations. Needs wallet balance. See [Traces](#traces). |
+
+## Session limits
+
+- Every session closes after 4 hours.
+- A session with no traffic in either direction closes after the router's idle timeout: 5 minutes by default, adjustable from 10 seconds to 14 minutes on the router (Settings, Routers, or `sessionIdleTimeoutMs` on [`PATCH /v1/routers/:id`](/cloud-rest-api#patch-v1routersid)).
+- There is no workspace-wide limit on concurrent sessions. Each provider's own `maxConcurrent` limits how many sessions it takes at once. When every eligible provider is full, the connection waits in the router's queue (50 waiting connections and 30 seconds by default, both adjustable on the router).
+
+## Connect errors
+
+A refused connection returns an HTTP status and a plain-text message before the WebSocket opens.
+
+| Status | Meaning |
+|---|---|
+| 400 | The router has no providers, the `provider` slug is not on this router, or the session asks to save to a profile but no provider on the router can save to it. |
+| 401 | The router key is missing, wrong or revoked. |
+| 402 | The workspace is over its monthly session ceiling with an empty wallet, `session_record` or `observability` was requested with an empty wallet, a new `profile` slug would pass the 500-profile limit, or the workspace is suspended. |
+| 409 | The router's Profiles, Recording or Traces switch is off for a feature the session asked for, or another session is currently saving to the same profile (retry after the `Retry-After` seconds). |
+| 413 | The saved profile is larger than the per-profile size limit. |
+| 429 | The queue timed out, every eligible provider is full, or too many failed attempts came from your IP. Honour `Retry-After` when it is present. |
+| 502 | Every eligible provider failed to open a browser. The message lists each attempt. |
+| 503 | The pinned provider is cooling down or full, no provider can take the session, the queue is full, or the router's settings changed while the session was starting. |
+
+## Router switches
+
+Each router has four switches. All are on for a new router.
+
+| Switch | Where to change it | When off |
+|---|---|---|
+| Recording | Recordings page header | `session_record=true` returns 409 |
+| Traces | Sessions page header | `observability=true` returns 409 |
+| Profiles | Profiles page header | `profile=` returns 409 |
+| Webhooks | Webhooks page header | No webhook deliveries for this router's sessions |
+
+The same switches are available over the REST API on [`/v1/routers/:id/settings`](/cloud-rest-api#get-v1routersidsettings).
+
+## Profiles
+
+`?profile=<slug>` loads a saved profile into the browser before your code gets it: cookies and localStorage for every saved origin. When the session ends, the new state is saved back as a new version of the profile.
+
+- **Saving needs the right provider.** A browserserve provider can save to any profile. Any other provider can save only to the profile it is pinned to (the provider's `profile` field). If no provider on the router can save to the requested profile, the connect returns 400. Add `readOnly=1` to load the profile without saving; read-only sessions can run on any provider.
+- **One writer at a time.** Only one session can save to a profile at once. A second saving session gets 409 until the first ends. Read-only sessions have no such limit.
+- **IndexedDB** is saved and restored only on browserserve providers.
+- sessionStorage is never saved.
+
+Create and manage profiles on the Profiles page or with the [profile endpoints](/cloud-rest-api#profiles). See [Profiles](/profiles) for how capture and injection work.
+
+## Recordings
+
+`?session_record=true` records what the browser renders during the session. It needs a positive wallet balance and the router's Recording switch.
+
+- Charged at `$0.007` per minute, billed per second, at session close. See [Billing](/billing).
+- A recording stops early when its running cost would use up the wallet balance, or when it reaches 1 GB. The session itself keeps running. The recording's `truncated` field says which happened.
+- After the session ends, the recording is encoded to MP4 automatically. It appears on the Recordings page and on the session's page in the dashboard.
+- Recordings are kept for 30 days.
+
+Over the REST API, list recordings with [`GET /v1/replays`](/cloud-rest-api#get-v1replays). When `mp4Status` is `ready`, download the video with `GET /v1/replays/:id/export/download`. If encoding failed or has not started, `POST /v1/replays/:id/export` starts it again.
+
+## Traces
+
+`?observability=true` captures a trace of the session: network requests, console output, navigations and other page events. It reads the CDP traffic without changing it, so it works with any provider.
+
+- Charged at `$0.05` per 1,000 events at session close.
+- Capture stops after 2,000,000 events in one session. The session keeps running.
+- Traces are kept for 60 days.
+
+Traces appear on the session's page in the dashboard. Over the REST API, list them with [`GET /v1/inspections`](/cloud-rest-api#get-v1inspections) and read the events with `GET /v1/inspections/:id/events`.
+
+## Playground
+
+The **Playground** page in the dashboard opens a live browser on a provider you choose and streams it to the page, so you can click and type into it. It uses your router key automatically. It can open a saved profile, read-only unless **Save changes to the profile** is checked. See [Live Playground](/live-playground) for how the stream works.
+
+## Provider status
+
+`GET https://cdp.browsergateway.io/v1/status` with the router key (`?token=` or bearer header) lists the router's providers with their health and priority:
+
+```json
+{
+  "ok": true,
+  "providers": [
+    { "id": "browserless-eu", "slug": "browserless-eu", "healthy": true, "priority": 100 }
+  ]
+}
+```
