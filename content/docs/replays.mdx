@@ -1,36 +1,31 @@
 ---
 title: "Session Replays"
-description: "Capture a frame-accurate visual record of every routed session so you can scrub through what happened later from the dashboard."
+description: "Record what the browser rendered during a session and read the frames back later through the REST API."
 ---
 
-Capture a frame-accurate visual record of every routed session so you can scrub through what happened later from the dashboard.
+Record what the browser rendered during a session, frame by frame, and read the frames back later through the REST API.
 
 ## When To Use Them
 
-- **AI agent debugging.** Your agent failed mid-workflow. Open the replay, watch the actual rendered pixels at the moment it broke.
-- **Customer support.** A user reports "the bot didn't see the popup." Pull the session replay, confirm.
+- **AI agent debugging.** Your agent failed mid-workflow. Pull the frames around the failure and see what the page actually showed.
+- **Customer support.** A user reports "the bot didn't see the popup." Pull the session's frames and confirm.
 - **Audit.** Regulated industries need proof of what a headless browser actually rendered for a given session.
-- **Provider comparison.** Replay the same job on Provider A vs Provider B. See where they diverge visually.
+- **Provider comparison.** Record the same job on Provider A and Provider B. See where they diverge visually.
 
 ## How It Works
 
-Replay is driven by a pipeline plugin. When a session connects with `?session_record=true`, the gateway attaches a screencast capture plugin to the CDP byte pipe. The plugin sends `Page.setDeviceMetricsOverride` and then `Page.startScreencast` against every browser Target the session creates (main page, popups, iframes). Chrome emits a JPEG frame each time the rendered viewport changes. Frames are chunked to disk in real time, and a `complete.json` manifest is written on session close.
+Recording is chosen per session. When a client connects with `?session_record=true`, the gateway adds a screencast capture step to that session's connection. Chrome sends an image each time the rendered page changes, and the gateway writes those images to disk as they arrive. When the session ends, the gateway writes a manifest that lists every frame and a completion record.
 
-Two things worth knowing:
+A few things worth knowing:
 
-- `Page.setDeviceMetricsOverride` must be sent before `Page.startScreencast` or Chromium silently emits zero frames. See [puppeteer#10527](https://github.com/puppeteer/puppeteer/issues/10527). The plugin handles this.
-- The plugin lives inside the CDP byte pipe. No separate CDP socket is opened. Nothing runs inside the page being scraped. Capture is invisible to the site under test.
+- Capture rides the same connection your client already uses. The gateway does not open a second connection to the provider, and nothing runs inside the page being recorded.
+- Every page and iframe the session opens is recorded, including popups.
+- Recording sets each page's viewport to 1280 x 720 before it starts. Chromium does not produce frames without a viewport set first ([puppeteer#10527](https://github.com/puppeteer/puppeteer/issues/10527)). If your script depends on a different viewport, set it again after the page opens.
+- Sessions without `session_record=true` are not recorded and pay no capture cost.
 
 ## Quickstart
 
-Replays are off by default. Enable the feature in `gateway.yml`:
-
-```yaml
-replay:
-  enabled: true
-```
-
-Restart the gateway. Then opt in per session by adding `?session_record=true` to the connect URL:
+There is no switch to turn on in `gateway.yml`. Add `?session_record=true` to the connect URL:
 
 ```ts
 const browser = await puppeteer.connect({
@@ -39,15 +34,20 @@ const browser = await puppeteer.connect({
 });
 ```
 
-Recordings appear in the **Replays** tab of the dashboard as soon as the session ends.
+When the session closes, list recordings with the REST API:
 
-Defaults: JPEG frames, 7-day retention, 500 MB per-session cap.
+```bash
+curl -H "Authorization: Bearer $BG_TOKEN" http://localhost:9500/v1/replays
+```
+
+Defaults: JPEG frames at quality 70, 7-day retention, 500 MB cap per session.
 
 ## Configuration Reference
 
+The `replay:` block is optional. It controls how recordings are stored, not whether they happen.
+
 ```yaml
 replay:
-  enabled: false                   # opt-in
   retentionDays: 7                 # delete completed replays older than this. 0 = keep forever
   maxBytesPerSession: 524288000    # 500 MB cap per session
   filesystem:
@@ -55,160 +55,101 @@ replay:
   capture:
     format: jpeg                   # jpeg (smaller, default) or png (lossless, larger)
     quality: 70                    # 1-100, only used when format=jpeg
-    everyNthFrame: 1               # 1 = every visual change; bump to skip frames
+    everyNthFrame: 1               # 1 = every visual change; raise to skip frames
 ```
 
 | Field | Default | What it controls |
 |---|---|---|
-| `enabled` | `false` | Master switch. Off skips all capture work. |
-| `retentionDays` | `7` | Daily cleanup deletes completed replays older than this. `0` keeps replays forever. |
-| `maxBytesPerSession` | `500 MB` | Safety cap. Capture stops for a session that exceeds this. |
-| `filesystem.path` | `./replays` | Where replays are stored under `$BG_DATA_DIR`. |
-| `capture.format` | `jpeg` | `jpeg` is ~5x smaller than PNG on disk and indistinguishable for replay playback. Switch to `png` for lossless capture. |
+| `retentionDays` | `7` | Recordings older than this are deleted by the cleanup sweep. `0` keeps them forever. |
+| `maxBytesPerSession` | `500 MB` | Safety cap. Capture stops for a session that exceeds this. Minimum 1 MB. |
+| `filesystem.path` | `./replays` | Where recordings are stored, relative to `$BG_DATA_DIR`. |
+| `capture.format` | `jpeg` | `jpeg` is much smaller on disk. Switch to `png` for lossless frames. |
 | `capture.quality` | `70` | JPEG quality (1-100). Ignored for PNG. |
 | `capture.everyNthFrame` | `1` | Frame sampling. `1` captures every visual change. |
+
+Older configs that contain `replay.enabled` still load. The key is ignored.
 
 ## Storage Layout
 
 ```
 $BG_DATA_DIR/replays/
   <session-id>/
-    meta.json                   summary written at capture start
-    complete.json               written on clean finish (endedAt, frameCount, sizeBytes)
-    targets/
-      <target-id>/
-        manifest.jsonl          one frame record per line
-        chunks/
-          000001.jsonl          chunked frame records with inline payloads
-          000002.jsonl
-          ...
+    meta.json        written when capture starts (provider, profile, start time, format)
+    parts/
+      000.bin        frames packed back to back, each with a 4-byte length prefix
+      001.bin
+      ...
+    manifest.json    written on session close: one record per frame
+    complete.json    written on session close: end time, frame count, size, dropped and skipped counts
 ```
 
-Frame chunks are written as the plugin receives them. `complete.json` is the finalization marker written on session close.
+A new part file starts every 25 MB or every 5 minutes, whichever comes first. Each manifest record gives the frame number, timestamp, page URL, viewport size, scroll offset, target ID, and where its bytes sit in the part files.
+
+A recording with no `complete.json` is still in progress, or its session ended without a clean close (for example, the gateway stopped mid-session).
 
 ## Provider Support
 
-Replay works with any provider that supports CDP `Page.startScreencast`. The gateway probes capabilities on provider registration. Providers without screencast support skip capture silently and the session runs normally without recording.
-
-| Capability | Replay status |
-|---|---|
-| `pageScreencast: "supported"` | Full capture |
-| `pageScreencast: "unsupported"` | Session runs, no replay recorded, info log emitted |
-| `pageScreencast: "unknown"` | Treated as unsupported |
-
-Check provider capabilities in the dashboard under **Providers** or via `GET /v1/providers/:id`.
+Recording works with any provider that supports the Chrome DevTools screencast command. If a provider does not support it, the gateway logs a warning and the session runs normally with no frames recorded.
 
 ## REST API
 
 | Endpoint | Method | Purpose |
 |---|---|---|
-| `/v1/replays` | GET | List replays (newest first). Accepts `?since=<iso>&limit=<n>`. |
-| `/v1/replays/:id` | GET | Single replay metadata with per-target summaries. |
+| `/v1/replays` | GET | List recordings, newest first. Accepts `?since=<iso>&limit=<n>` (default 100, max 500). The response also echoes the active `replay:` settings. |
+| `/v1/replays/:id` | GET | One recording's metadata, with a per-target summary (frame count, size, first and last URL). |
 | `/v1/replays/:id` | DELETE | Permanent delete. |
-| `/v1/replays/:id/targets/:targetId/manifest` | GET | Stream the target's frame manifest. |
-| `/v1/replays/:id/targets/:targetId/frames/:N` | GET | Single frame binary. Long-cached. |
-| `/v1/replays/:id/targets/:targetId/export.mp4` | GET | H.264-encoded MP4 of the target. Requires `ffmpeg` on the gateway host. Returns 503 with install instructions when missing. |
+| `/v1/replays/:id/manifest` | GET | The full frame manifest as JSON. Returns 404 until the session has closed. |
+| `/v1/replays/:id/frames/:frame` | GET | One frame as an image, for example `/frames/12.jpeg`. Frame numbers run across the whole session. Long-cached. |
+| `/v1/replays/:id/parts/:part` | GET | One raw part file, for example `/parts/000.bin`. Long-cached. |
 
-Auth uses the standard `BG_TOKEN`.
+All endpoints use the standard `BG_TOKEN` auth. `:id` is the session ID, the same one shown on the Sessions page and in `GET /v1/sessions`.
+
+To play a recording back, read the manifest, then fetch frames in order and show each one for the gap between its timestamp and the next.
 
 ## Retention
 
-A daily sweep walks the replay store and deletes any session whose `endedAt` is older than `retentionDays`. Incomplete sessions (no `complete.json` written, e.g. the gateway crashed mid-capture) get a 24-hour grace period before they're eligible for deletion.
+A cleanup sweep runs every 6 hours. It deletes any recording whose session ended more than `retentionDays` ago. Recordings that never finished (no `complete.json`) get an extra 24 hours before they become eligible.
 
-Set `retentionDays: 0` to keep replays forever. You're responsible for disk space at that point.
+Set `retentionDays: 0` to keep recordings forever. You are responsible for disk space at that point.
 
 ## Safety Caps
 
-- **Per-session byte cap** (`maxBytesPerSession`, default 500 MB) protects against a runaway tab consuming the volume. When a session hits the cap, capture stops for that session, a warning is logged, and the existing frames are flushed.
-- **Bounded write queue** (200 frames in-flight) prevents Chrome from emitting frames faster than disk can absorb. Frames over the queue limit are dropped and counted in `droppedFrames` written to `complete.json`.
-- **Capture is fully isolated.** It runs on a separate CDP socket and never interferes with the customer's automation pipe.
+- **Per-session byte cap** (`maxBytesPerSession`, default 500 MB) protects against a runaway tab filling the disk. When a session hits the cap, capture stops for that session, a warning is logged, and the frames already captured are kept. The manifest is marked `truncated: "byte-cap"`.
+- **Bounded write queue.** If frames arrive faster than the disk can write them, extra frames are dropped rather than queued without limit. The count appears as `droppedFrames` in `complete.json`.
+- **Your automation is not affected.** Capture never blocks or alters the commands your client sends.
 
-## Dashboard
+## Frame Deduplication
 
-The **Replays** tab lists captured sessions with provider, profile, duration, frame count, size, and status. Click any row to open the player.
+Each frame is compared with the previous frame from the same page. Frames with identical bytes are skipped, so only one copy lands on disk. A frame is only skipped when it matches exactly, so no visual change is lost. The skip count appears as `duplicatesSkipped` in `complete.json`.
 
-The player is an image-swap loop driven by manifest timestamps. Play, pause, scrub, jump to start or end. Each target captured during the session appears as a pill above the player so you can switch between tabs.
-
-## Cross-references
-
-- **Profiles + replay.** When `?profile=<id>` is used on a session, the replay's metadata includes the `profileId`. The Profile detail page surfaces the most recent replays that used that profile.
-- **Provider pinning + replay.** REST endpoints with a `provider` field still record. The replay's `providerId` reflects the pinned provider.
-- **Live view + replay.** Both use CDP screencast but serve different purposes. Live view streams real-time to the dashboard. Replay persists to disk for later playback.
-
-## Frame deduplication
-
-Each frame is hashed against the previous frame. Byte-identical consecutive frames are skipped at capture time so only one entry lands on disk. This is lossless for visual changes: a frame is only dropped when its bytes match the previous frame exactly. The skip count surfaces as `duplicatesSkipped` in `complete.json`.
-
-Why this beats "drop pure white frames":
-
-- A legitimate blank page (Google Docs, a print preview) keeps all its frames because each one with a blinking cursor differs in bytes.
-- Identical non-white frames also get deduped (dark-mode static pages, idle dashboards), not only white loading screens.
-- Zero false positives.
-
-## What gets recorded
+## What Gets Recorded
 
 | Connection type | Recorded? |
 |---|---|
-| `WS /v1/connect?session_record=true` (Puppeteer, Playwright, MCP clients) | Yes |
+| `WS /v1/connect?session_record=true` (Puppeteer, Playwright, any CDP client) | Yes |
 | `WS /v1/connect` without `session_record` | No |
-| `WS /v1/live` (Playground page) | Yes when the plugin is attached |
+| `WS /v1/live` (Playground page) | No |
 | `POST /v1/screenshot` / `/v1/content` / `/v1/scrape` | No |
 
-Recording is per-session opt-in. `session_record` is a URL parameter, not a config toggle, so the same gateway can record some sessions and skip others. REST one-shot endpoints are not recorded. Use the [Playground](/live-playground) for interactive inspection of a single page.
+## Cross-references
 
-## MP4 export
-
-The dashboard player exposes an **Export as MP4** button. The endpoint runs `ffmpeg` on the gateway host to encode the captured frames into an H.264 MP4 with variable per-frame durations honoring the original timestamps.
-
-The gateway looks for ffmpeg in this order:
-
-1. `ffmpeg` on the system `PATH` (preferred, uses your OS install, smaller footprint)
-2. `$BG_DATA_DIR/.npm/node_modules/ffmpeg-static/ffmpeg` (auto-installed fallback)
-
-The Docker image ships with `ffmpeg` pre-installed, so no setup is needed for containerized deploys.
-
-For npm installs, you have two options:
-
-### Option 1, system install (recommended)
-
-```bash
-# macOS
-brew install ffmpeg
-
-# Debian / Ubuntu
-apt install ffmpeg
-
-# Fedora / RHEL
-dnf install ffmpeg
-```
-
-### Option 2, automatic install from the dashboard
-
-Click **Install ffmpeg automatically** in the export dialog. The gateway runs `npm install ffmpeg-static` into `$BG_DATA_DIR/.npm/`, which adds ~80 MB to the data directory and survives restarts. Requires `npm` on the host.
-
-The dashboard surfaces both options. The system install is faster (no download), uses a newer ffmpeg, and can be shared across multiple gateway instances on the same host. The auto-install is one click.
-
-### REST endpoints
-
-| Endpoint | Purpose |
-|---|---|
-| `GET /v1/replays/ffmpeg/status` | Returns `{ available, source, installing, localInstalled }`. |
-| `POST /v1/replays/ffmpeg/install` | Triggers the `ffmpeg-static` install. Idempotent, concurrent calls share the same in-flight install. |
-
-When `ffmpeg` is missing entirely, the export endpoint returns `503` with platform-specific install hints + a `canAutoInstall: true` flag in the JSON body.
+- **Profiles and recording.** Both work on the same session. When `?profile=<id>` is used, the recording's metadata includes the `profileId`.
+- **Provider pinning and recording.** A session pinned with `?provider=<id>` still records. The recording's `providerId` reflects the pinned provider.
+- **Live view and recording.** Both use Chrome's screencast but serve different purposes. [Live view](/live-playground) streams to the dashboard in real time and saves nothing. Recording saves to disk for later.
 
 ## Limitations
 
-- Capture skips providers without `pageScreencast` support. Sessions still run, without a recording.
-- No PII redaction yet. If you record sessions handling sensitive data, configure short retention and restrict dashboard access.
-- Replays are stored on local disk. Operators running multi-instance deployments need to point all instances at a shared mount.
+- The self-hosted dashboard has no replay player. Use the REST API to list, read and delete recordings.
+- No video export. Frames are stored as individual JPEG or PNG images.
+- No PII redaction. If you record sessions handling sensitive data, set a short retention and restrict access to the gateway.
+- Recordings are stored on local disk. Multi-instance deployments need a shared mount if every instance should see every recording.
 
 ## Troubleshooting
 
-**No replays appear after enabling.** Confirm the provider supports `pageScreencast`. Check the dashboard's Providers page or `/v1/providers/:id/capabilities`.
+**No recording appears.** Confirm the connect URL has `session_record=true` exactly (not `1` or `yes`). Check the gateway log for a `screencast arm failed` warning, which means the provider rejected the screencast command.
 
-**Frames are recorded but the player shows nothing.** Check that the gateway can serve `/v1/replays/:id/targets/:t/frames/000001.png` with a 200. If the dashboard sits behind a reverse proxy that strips long URLs or paths with dots, the frame endpoint may not reach the gateway.
+**The manifest returns 404.** The session is still open, or it ended without a clean close. The manifest is written when the session closes.
 
-**Disk fills up.** Lower `retentionDays`, set `maxBytesPerSession` to a smaller value, or bump `capture.everyNthFrame` to `2`/`3` to sample fewer frames.
+**Disk fills up.** Lower `retentionDays`, set a smaller `maxBytesPerSession`, or raise `capture.everyNthFrame` to `2` or `3` to sample fewer frames.
 
-**Dropped frames count is high.** Disk write throughput is the bottleneck. Move `$BG_DATA_DIR` to faster storage, or switch `capture.format` to `jpeg` to cut bytes per frame.
+**Dropped frames count is high.** Disk write speed is the bottleneck. Move `$BG_DATA_DIR` to faster storage, or keep `capture.format` on `jpeg` to cut bytes per frame.
