@@ -1,0 +1,156 @@
+---
+title: "Securing browserserve on cloud machines"
+description: "Stop pages from reading your cloud machine's credentials, and run one isolated session per instance. Applies to browserserve on any cloud VM, container platform or Kubernetes cluster."
+---
+
+A browser runs whatever the pages it visits tell it to. On your laptop that is fine. On a cloud machine it needs two extra precautions, because the machine itself holds something worth stealing, and because several users may share it.
+
+This page covers both:
+
+- [Block the cloud metadata address](#block-the-cloud-metadata-address), so a page cannot read the machine's credentials.
+- [Run one session per instance](#one-session-per-instance), so two users never share a browser process or machine.
+
+## Block the cloud metadata address
+
+### What the risk is
+
+Every major cloud gives each machine a private information service at a fixed address, usually `169.254.169.254`. Any program on the machine can ask it who the machine is, which project it belongs to, and for a short-lived access token for the machine's service account. The machine's own tools rely on it.
+
+A browser is a program on that machine. If a page, or a script that drives the browser, navigates to `http://169.254.169.254/...` or fetches it from JavaScript, the browser makes that request from inside your machine. What leaks depends on your cloud and on the permissions of the machine's identity, from the project name up to a working token for your cloud account.
+
+This matters most when the browser loads pages you do not control: scraping, AI agents browsing on a user's behalf, or a service where your customers drive the browser.
+
+### Turn the block on
+
+The Docker image has a switch for it. With `BROWSERSERVE_BLOCK_METADATA=1`, the container's startup step, which runs as root for a moment before handing over to an unprivileged user, adds kernel firewall rules that refuse every connection the container starts to:
+
+- `169.254.0.0/16`, the link-local range used by AWS, Google Cloud, Azure, Oracle, DigitalOcean and others, including container task-metadata addresses such as `169.254.170.2`
+- `100.100.100.200`, Alibaba Cloud's metadata address
+- `fd00:ec2::254` and `fd20:ce::254`, the IPv6 metadata addresses on AWS and Google Cloud
+
+The rules are in place before any browser starts, and the unprivileged user that runs browserserve and Chrome cannot change them. Every route a page could take (navigation, `fetch`, WebSockets, a proxy set over CDP, a DNS name that resolves to one of these addresses) ends in a connection the kernel refuses. Available from browserserve 0.1.13.
+
+Adding firewall rules needs the `NET_ADMIN` capability.
+
+Docker:
+
+```bash
+docker run -d -p 9222:9222 --shm-size=1g \
+  --cap-add NET_ADMIN \
+  -e BROWSERSERVE_BLOCK_METADATA=1 \
+  -e BROWSERSERVE_TOKEN=change-me \
+  ghcr.io/browser-gateway/browserserve:latest
+```
+
+Docker Compose:
+
+```yaml
+services:
+  browserserve:
+    image: ghcr.io/browser-gateway/browserserve:latest
+    ports: ["9222:9222"]
+    shm_size: 1gb
+    cap_add: [NET_ADMIN]
+    environment:
+      BROWSERSERVE_BLOCK_METADATA: "1"
+      BROWSERSERVE_TOKEN: change-me
+```
+
+Kubernetes:
+
+```yaml
+containers:
+  - name: browserserve
+    image: ghcr.io/browser-gateway/browserserve:latest
+    env:
+      - name: BROWSERSERVE_BLOCK_METADATA
+        value: "1"
+    securityContext:
+      capabilities:
+        add: ["NET_ADMIN"]
+```
+
+Some managed container platforms already grant `NET_ADMIN`; others never allow it. Check your platform's documentation.
+
+### It fails closed
+
+If the switch is on and the block cannot be applied (no `NET_ADMIN`, no firewall tool, a rule that does not take), the container prints the reason and the fix, then exits instead of starting a browser without protection:
+
+```
+entrypoint: BROWSERSERVE_BLOCK_METADATA=1 but iptables could not add a tcp --syn rule for 169.254.0.0/16; refusing to start. Run as root with the NET_ADMIN capability (docker run --cap-add NET_ADMIN), or unset BROWSERSERVE_BLOCK_METADATA.
+```
+
+On a platform that keeps serving the previous version when a new one fails to start, check after each deploy that the new version is the one serving traffic.
+
+### DNS
+
+On several clouds the metadata address is also the machine's DNS resolver. Once it is blocked, name lookups through it stop working. When the switch is on and `/etc/resolv.conf` points at a blocked address (or Docker's own resolver forwards to one), browserserve rewrites it to public resolvers, `1.1.1.1` and `8.8.8.8` by default. Set `BROWSERSERVE_DNS` to use others, for example your own internal resolver:
+
+```bash
+-e BROWSERSERVE_DNS="10.0.0.2"
+```
+
+When this rewrite happens on a Docker network, lookups of other containers by name stop working inside the browserserve container. Address them by IP, or supply a resolver that knows those names.
+
+### Replies to incoming traffic are not affected
+
+The rules only refuse connections the container starts. Replies to connections that arrive from outside still go out, which matters because some platforms run their health checks from link-local addresses. Blocking every packet to that range would make those checks fail.
+
+### Check that it works
+
+The startup log shows one line when the block is active:
+
+```
+entrypoint: cloud metadata addresses blocked for this container
+```
+
+To test it from inside the container as the user the browser runs as:
+
+```bash
+docker exec -u 999 <container> curl -sS -m 3 http://169.254.169.254/
+# curl: (7) Failed to connect to 169.254.169.254 port 80 after 0 ms: Could not connect to server
+```
+
+An immediate failure with code `7` means the rule refused it. A timeout (code `28`) usually means the address does not exist on that network (for example on your laptop), which does not prove the rule is in place. Run the check on the cloud machine itself.
+
+### What it does not cover
+
+- **Other internal addresses.** Private ranges such as `10.0.0.0/8`, `172.16.0.0/12` and `192.168.0.0/16` are not blocked, because many setups browse internal apps on purpose. If the browser must not reach your private network, add your own firewall rules or a network policy for those ranges.
+- **Running the binary without Docker.** The switch lives in the Docker image's startup step. For a browserserve binary run directly on a VM, apply equivalent rules for the user the service runs as, which leaves the machine's own agents free to use the metadata service:
+
+```bash
+# run as root; replace "browserserve" with the service user
+for net in 169.254.0.0/16 100.100.100.200/32; do
+  iptables -I OUTPUT -m owner --uid-owner browserserve -p tcp --syn -d "$net" -j REJECT
+  iptables -I OUTPUT -m owner --uid-owner browserserve -p udp -d "$net" -j REJECT
+done
+for net in fd00:ec2::254/128 fd20:ce::254/128; do
+  ip6tables -I OUTPUT -m owner --uid-owner browserserve -p tcp --syn -d "$net" -j DROP
+  ip6tables -I OUTPUT -m owner --uid-owner browserserve -p udp -d "$net" -j DROP
+done
+```
+
+Persist them with your distribution's firewall tooling so they survive a reboot.
+
+- **What the machine's identity can do.** The block is one layer. Also give the machine's service account the smallest permissions it needs; for a browser host that is usually none.
+
+## One session per instance
+
+A fresh browser per session already keeps cookies, storage and cache from carrying between sessions. On a shared platform you may also want a guarantee that two users never share the same process or machine at all. `session.singleUse` (`BROWSERSERVE_SINGLE_USE=1`) does that: the instance serves one session, then exits, and your platform starts a fresh instance for the next user. Available from browserserve 0.1.12.
+
+Point the platform's readiness check at `GET /ready` with a short interval. `/ready` turns unready the moment the one session is claimed. Without that check, a platform can route the next connection to the instance that is about to exit, and that connection fails.
+
+Kubernetes example:
+
+```yaml
+readinessProbe:
+  httpGet:
+    path: /ready
+    port: 9222
+  periodSeconds: 1
+  failureThreshold: 1
+```
+
+`GET /pressure` agrees with `/ready`: while an instance is spent it reports `isAvailable: false` with reason `spent`.
+
+Single-use pairs well with the metadata block: each user gets a browser on a machine of their own, and that machine cannot hand out its credentials.

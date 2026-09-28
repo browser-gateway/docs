@@ -96,9 +96,9 @@ All three limits are off by default.
 
 ### Capacity
 
-When `pool.maxSessions` is unset, browserserve measures the host's real ceiling at startup rather than guessing. It brings up real recording sessions one at a time until the host reaches its edge (a launch failure or a memory safety line), then holds all of them together under full load for a window matching a real session and keeps the count that stays healthy. That is the honest number of sessions the host can actually run at once, and it depends on the machine: the same container gives a different number on a fast idle box than on a busy shared one, because a host can bring up more sessions gradually than it can sustain when they all run together. The measured number becomes the pool ceiling and is advertised on `GET /json/version` (as `Browserserve-MaxConcurrent`), so a gateway routing to this instance schedules it accurately instead of overloading it.
+When `pool.maxSessions` is unset, browserserve measures the host's real ceiling at startup rather than guessing. It brings up real recording sessions one at a time until the host reaches its edge (a launch failure or a memory safety line), then holds all of them together under full load for a window matching a real session and keeps the count that stays healthy. That is the honest number of sessions the host can actually run at once, and it depends on the machine: the same container gives a different number on a fast idle box than on a busy shared one, because a host can bring up more sessions gradually than it can sustain when they all run together. The measured number becomes the pool ceiling and is advertised in the `GET /json/version` response (as the `Browserserve-MaxConcurrent` field), so a gateway routing to this instance schedules it accurately instead of overloading it.
 
-While calibration runs, the instance reports not-ready: `GET /ready` returns 503, `GET /json/version` carries `Browserserve-Calibrating: true`, and new sessions are refused so calibration has the host to itself. It finishes in seconds and begins accepting sessions the moment the ceiling is set; a gateway that probes during this window waits and retries.
+While calibration runs, the instance reports not-ready: `GET /ready` returns 503, the `GET /json/version` response carries `"Browserserve-Calibrating": true`, `GET /pressure` reports `isAvailable: false` with reason `calibrating`, and new sessions are refused so calibration has the host to itself. It finishes in seconds and begins accepting sessions the moment the ceiling is set; a gateway that probes during this window waits and retries.
 
 Calibration runs once, at startup, and never drives the host into an out-of-memory: it only ever adds one session at a time and backs off before pressure. To skip it and use a fast, conservative estimate instead, set `BROWSERSERVE_CALIBRATE=false` (or `pool.calibrate: false`). That suits deploys that do not route through a gateway reading the advertised number, or that want instant-ready startup. Precedence: an explicit `pool.maxSessions` always wins, then calibration, then the estimate. `GET /pressure` reports the resulting ceiling and its source.
 
@@ -138,7 +138,7 @@ Configuration is a YAML file (`browserserve.yml` in the working directory, or `B
 | `session.pidsMax` | `0` | Per-session cap on processes plus threads. Kernel-enforced on a delegated host only; `0` = disabled. A browser session typically uses 120 to 160. |
 | `session.idleTimeoutMs` | `0` | Kill a session whose client has not sent a CDP message in this many ms; `0` = disabled. Recommended starting value: `300000` (5 min). |
 | `session.killGraceMs` | `5000` | SIGTERM-to-SIGKILL grace during teardown. |
-| `session.singleUse` | `false` | Serve exactly one session, then exit with code `0`. Later connections get `503 single_use_spent`. Forces `pool.maxSessions: 1` and skips calibration. For platforms that start a fresh instance when one exits (Cloud Run, Kubernetes, Fly Machines), so no two clients share a process or machine. Available from 0.1.12. |
+| `session.singleUse` | `false` | Serve exactly one session, then exit with code `0`. Later connections get `503 single_use_spent`. Forces `pool.maxSessions: 1` and skips calibration. For platforms that start a fresh instance when one exits (Cloud Run, Kubernetes, Fly Machines), so no two clients share a process or machine. Point the platform's readiness check at `GET /ready` with a short interval; see [Securing browserserve on cloud machines](./browserserve-cloud-security#one-session-per-instance). Available from 0.1.12. |
 | `pressure.maxCpuPercent` | `95` | Reject new sessions above this host CPU usage. |
 | `pressure.maxMemoryPercent` | `95` | Reject new sessions above this host memory usage. |
 | `chrome.noSandbox` | `false` | Start without the Chromium sandbox. |
@@ -155,9 +155,9 @@ Every tuning knob has an environment-variable equivalent, so container and serve
 
 | Variable | YAML equivalent | Meaning |
 |---|---|---|
-| `PORT` | `serve.port` | HTTP port. Default `9222`. |
-| `HOST` | `serve.host` | Bind address. Default `0.0.0.0`. |
-| `BROWSERSERVE_TOKEN` | `serve.token` | Bearer token for auth. Unset disables auth. |
+| `PORT` | none (environment only) | HTTP port. Default `9222`. |
+| `HOST` | none (environment only) | Bind address. Default `0.0.0.0`. |
+| `BROWSERSERVE_TOKEN` | none (environment only) | Bearer token for auth. Unset disables auth. |
 | `BROWSERSERVE_CONFIG` | n/a | Path to the YAML config file. |
 | `BROWSERSERVE_CHROME_PATH` | `chrome.executablePath` | Chromium binary. Auto-detected when unset. |
 | `BROWSERSERVE_DATA_DIR` | `dataDir` | Where per-session state lives. |
@@ -173,14 +173,16 @@ Every tuning knob has an environment-variable equivalent, so container and serve
 | `BROWSERSERVE_SINGLE_USE` | `session.singleUse` | One session per process, then exit. Boolean. |
 | `BROWSERSERVE_NO_SANDBOX` | `chrome.noSandbox` | Opt out of the Chromium sandbox. Boolean. |
 | `BROWSERSERVE_REQUIRE_SANDBOX` | `chrome.requireSandbox` | Refuse to fall back if the host blocks the sandbox. |
+| `BROWSERSERVE_BLOCK_METADATA` | none (Docker image only) | `1` blocks the container from reaching cloud instance metadata addresses. Needs `NET_ADMIN`. See [Securing browserserve on cloud machines](./browserserve-cloud-security). Available from 0.1.13. |
+| `BROWSERSERVE_DNS` | none (Docker image only) | Resolvers used when the metadata block replaces a metadata-address resolver. Default `1.1.1.1 8.8.8.8`. Available from 0.1.13. |
 
 Setting both `noSandbox` and `requireSandbox` is a startup error.
 
 ### Sizing and capacity
 
-When a session is refused, the server answers 503 with a reason (`pressure`, `queue_full`, `queue_timeout`, `draining`, `launch_failed`, `calibrating`) and logs one line with the same reason. New sessions are refused above 95% CPU or memory so that running sessions are not slowed down; clients should retry or use another instance.
+When a session is refused, the server answers 503 with a reason (`pressure`, `queue_full`, `queue_timeout`, `draining`, `launch_failed`, `calibrating`, `single_use_spent`) and logs one line with the same reason. New sessions are refused above 95% CPU or memory so that running sessions are not slowed down; clients should retry or use another instance.
 
-browserserve auto-derives `pool.maxSessions` from the host's real limits (cgroup memory / pids / cpus) and a measured browser footprint at boot. On an 8 GB, 8 vCPU container it typically resolves to 12-16 sessions, bound by CPU or PIDs. Override via `pool.maxSessions` or `BROWSERSERVE_MAX_SESSIONS`.
+browserserve auto-derives `pool.maxSessions` from the host's real limits (cgroup memory / pids / cpus) and a measured browser footprint at boot. The result depends on the machine and the workload: in our tests an 8 GB, 8 vCPU container sustained about 5 concurrent recording sessions, fewer than its memory or CPU count alone would suggest. Override via `pool.maxSessions` or `BROWSERSERVE_MAX_SESSIONS`.
 
 The per-session memory cap (`session.memoryMaxMb`) is disabled by default. In our own tests on 4-core, 16 GB cloud machines a session browsing text-heavy pages used about 0.5 to 0.7 GB across its whole process tree, and ad-heavy news sites used more, so a cap that seems generous can be tight in practice. A breach stops the offending tab, not the session. Recommended pattern:
 
@@ -194,12 +196,12 @@ Screencast and playground use cases push memory harder than headless scrape. The
 | Endpoint | Purpose |
 |---|---|
 | `WS /` | Connect a CDP session; one connection = one isolated browser. `?profileToken=` seeds a saved profile, `?readOnly=1` shares one without capturing, `?token=` authenticates. |
-| `GET /json/version` | CDP discovery. Also advertises `Browserserve-Version` and `Browserserve-MaxConcurrent` so a router can auto-detect the instance and its capacity. |
+| `GET /json/version` | CDP discovery. The JSON response also carries `Browserserve-Version` and `Browserserve-MaxConcurrent` fields so a router can auto-detect the instance and its capacity. |
 | `POST /v1/profile` | Drop off a profile; returns a one-time `profileToken`. Bearer-authed, 64 MiB max, 429 when the store is full. |
 | `GET /v1/profile/{token}` | Pick up the captured profile after the session closes. Bearer-authed, single use, 404 until ready. |
 | `GET /live` | Process liveness. |
-| `GET /ready` | The instance can serve a session now. |
-| `GET /pressure` | Load, capacity (and which host limit set it via `capacitySource`), and the active isolation tiers. |
+| `GET /ready` | `200` when the instance can serve a session now, `503` otherwise. The body reports `warm`, `calibrating`, `spent` (single-use) and `sandbox`. |
+| `GET /pressure` | Load, capacity (and which host limit set it via `capacitySource`), and the active isolation tiers. `isAvailable` is `false` whenever a new session would be refused, with `reason` one of `sandbox`, `spent`, `draining`, `calibrating`, `full`, `cpu`, `memory`. |
 
 When `BROWSERSERVE_TOKEN` is set, the CDP WebSocket and the `/v1/profile` endpoints require the token; `/live`, `/ready`, and `/pressure` stay open for load balancers.
 
@@ -217,13 +219,14 @@ All three accept `--config <path>`. Config resolves in order: `--config`, then `
 
 - **Sandbox with automatic fallback.** Chromium's sandbox stays on where the host allows it. Where the host blocks the system calls it needs (Docker's default profile, Railway, Cloud Run, most managed platforms), browserserve logs a warning and falls back to `--no-sandbox` so the deploy still works. Isolation between sessions is unaffected, because it comes from the fresh per-session profile directory, not the sandbox. To keep the sandbox on in Docker, run with the shipped profile: `--security-opt seccomp=docker/seccomp.json`. To require the sandbox and refuse the fallback, for untrusted content, set `chrome.requireSandbox: true`; sessions then fail to start on a host that blocks the sandbox rather than downgrading. To skip the sandbox explicitly, set `chrome.noSandbox: true`.
 - **Non-root.** The server does all real work as an unprivileged user (uid 999). It starts as root only to self-delegate a per-session cgroup slice when the host allows it, then drops privileges.
+- **Cloud metadata block (opt-in).** On a cloud machine a page can try to reach the instance metadata address and read the machine's credentials. `BROWSERSERVE_BLOCK_METADATA=1` blocks it at the kernel before any browser starts. See [Securing browserserve on cloud machines](./browserserve-cloud-security).
 - **Authenticated surface.** With `BROWSERSERVE_TOKEN` set, the CDP WebSocket and the profile channel require the token; the health endpoints stay open.
 
 The repository's `SECURITY.md` has the reporting policy and deployment notes.
 
 ## Using browserserve with the gateway
 
-Add it like any other provider. The gateway routes to it over the same WebSocket contract it uses for every provider, and auto-detects it from the `Browserserve-Version` and `Browserserve-MaxConcurrent` headers on `/json/version` (adopting its advertised capacity when you leave `maxConcurrent` unset):
+Add it like any other provider. The gateway routes to it over the same WebSocket contract it uses for every provider, and auto-detects it from the `Browserserve-Version` and `Browserserve-MaxConcurrent` fields in the `/json/version` response (adopting its advertised capacity when you leave `maxConcurrent` unset):
 
 ```yaml
 providers:

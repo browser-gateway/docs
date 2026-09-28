@@ -8,6 +8,7 @@
     "providers",
     "---Self-Hosted Runtime---",
     "browserserve",
+    "browserserve-cloud-security",
     "---Sessions & State---",
     "profiles",
     "sessions",
