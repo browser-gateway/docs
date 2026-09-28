@@ -81,7 +81,7 @@ Every parameter is optional. Combine as needed.
 | `provider=<id>` | Pin the request to one provider slot. Fails if that slot is unhealthy or full. |
 | `profile=<id>` | Load a saved profile into the session. Default is write-back. See [Profiles](/profiles). |
 | `readOnly=1` | Combined with `profile=`, load the profile but never save changes back. Bypasses provider eligibility because nothing is written. |
-| `session_record=true` | Record the session as a replay. Requires `replay.enabled: true` in `gateway.yml`. See [Session Replays](/replays). |
+| `session_record=true` | Record the session's frames to disk. No config switch needed. See [Session Replays](/replays). |
 | `sessionId=<id>` | Reconnect to a previous session. Routes back to the same provider if the reconnect timeout hasn't elapsed. See [Session Reconnection](#session-reconnection). |
 
 ## Connection States in the Gateway
@@ -99,6 +99,7 @@ curl http://localhost:9500/v1/sessions
     {
       "id": "abc123",
       "providerId": "primary",
+      "profileId": null,
       "connectedAt": "2026-03-25T17:00:00.000Z",
       "lastActivity": "2026-03-25T17:05:30.000Z",
       "durationMs": 330000,
@@ -147,6 +148,8 @@ ws://gateway:9500/v1/connect?sessionId=<session-id>
 ```
 
 The session ID is returned in the `X-Session-Id` response header when a connection is first established.
+
+A disconnected session stays reconnectable (parked) for `reconnectTimeoutMs`. List parked sessions with `GET /v1/sessions/parked`. A reconnect that arrives after the window has passed does not reattach: the gateway treats it as a new connection and routes it normally, with a fresh browser. The old ID is discarded at that point, even if the periodic cleanup has not removed it yet.
 
 This is useful for:
 - AI agents that crash mid-workflow and need to resume

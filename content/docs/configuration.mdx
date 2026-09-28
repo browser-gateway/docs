@@ -63,13 +63,40 @@ providers:
 # Optional: get notified when things happen
 webhooks:
   - url: https://hooks.slack.com/services/xxx    # Where to send notifications
-    events: [provider.cooldown, provider.down]    # Which events (omit for all events)
+    events: [provider.cooldown, queue.timeout]    # Which events (omit for all events)
 
 dashboard:
   enabled: true                        # Enable web dashboard at /web (default: true)
 
 logging:
   level: info                          # debug | info | warn | error (default: info)
+
+# Saved browser profiles (see Profiles)
+profiles:
+  enabled: false                       # Off by default. Restart after changing
+  filesystem:
+    path: ./profiles                   # Resolved under $BG_DATA_DIR
+  encryption:
+    keyEnv: BG_ENCRYPTION_KEY          # Env var that holds the key (else $BG_DATA_DIR/.encryption-key)
+  lockTtlMs: 300000                    # How long a write-back lock is held before it expires (default: 5 min)
+  cdpTimeoutMs: 10000                  # Max ms to load a profile into the browser at connect
+  commitTimeoutMs: 4000                # Max ms to capture and save the profile at disconnect
+
+# Session recording storage (recording itself is per session: ?session_record=true)
+replay:
+  retentionDays: 7                     # Delete recordings older than this. 0 = keep forever
+  maxBytesPerSession: 524288000        # 500 MB cap per session
+  filesystem:
+    path: ./replays                    # Resolved under $BG_DATA_DIR
+  capture:
+    format: jpeg                       # jpeg or png
+    quality: 70                        # 1-100, jpeg only
+    everyNthFrame: 1                   # 1 = every visual change
+
+# Browser sessions used by the one-shot REST endpoints (see Session Pool below)
+pool:
+  minSessions: 0
+  maxSessions: 5
 
 # One-shot REST endpoints (/v1/screenshot, /v1/content, /v1/scrape)
 rest:
@@ -179,8 +206,8 @@ providers:
 
 Setting `multiProfile: true` on any other provider is rejected two ways:
 
-- **When added over the API**, the gateway probes the upstream first. If it answers but
-  is not the self-hosted runtime, `POST /v1/providers` returns HTTP 400 with
+- **When added or edited over the API**, the gateway probes the upstream first. If it answers but
+  is not the self-hosted runtime, `POST /v1/providers` and `PUT /v1/providers/:id` return HTTP 400 with
   `"multiProfile:true is only valid on browserserve providers"`. If it does not answer
   the probe at all, the request is still refused, with a separate error,
   `"Cannot verify multiProfile:true, the upstream did not answer the probe"`, and the
@@ -228,7 +255,7 @@ Each major feature has its own guide with real-world examples:
 - **[Load Balancing](/operating/load-balancing)** - All 5 strategies explained with when to use each
 - **[Failover](/operating/failover)** - How automatic failover works, cooldown system
 - **[Request Queue](/operating/queue)** - What happens when all providers are busy
-- **[Webhooks](/operating/webhooks)** - Get notifications when providers go down or recover
+- **[Webhooks](/operating/webhooks)** - Get notifications when a provider is put on cooldown, a queued request times out, or the gateway shuts down
 - **[Session Lifecycle](/sessions)** - What happens during connect and disconnect
 - **[Graceful Shutdown](/cli#graceful-shutdown)** - How the gateway shuts down cleanly
 
@@ -262,6 +289,8 @@ These environment variables can be set alongside or instead of a config file:
 | `BG_DATA_DIR` | Where the gateway stores config, profiles, and the encryption key | `/data` (Docker), `~/.browser-gateway` (otherwise) |
 | `BG_CONFIG_PATH` | Path to gateway.yml | `$BG_DATA_DIR/gateway.yml` |
 | `BG_ALLOWED_ORIGINS` | Cross-origin allowlist (comma-separated) | Same-origin only |
+| `BG_PUBLIC_URL` | The public base URL the gateway gives to agents (for example in `GET /mcp/setup.md`). Set it when the gateway sits behind a proxy or domain, e.g. `https://gateway.example.com`. | Built from the bind interface and port, e.g. `http://localhost:9500` |
+| `BG_TRUST_PROXY` | Set to `1` only behind a reverse proxy that overwrites `X-Forwarded-Host`. The gateway then uses that header, not `Host`, when checking a browser request's `Origin` and the allowed hosts on `/mcp`. | Off (`Host` is used) |
 | `BG_ALLOWED_HOSTS` | Extra `Host` header values accepted on `/mcp` when `BG_TOKEN` is unset (comma-separated) | Loopback only |
 | `PORT` | Server port (12-factor convention used by Railway, Render, Fly, Heroku) | 9500 |
 | `HOST` | Bind interface. Setting it always wins over the default below. | `0.0.0.0` when `BG_TOKEN` is set, `127.0.0.1` when it is not |
@@ -342,6 +371,7 @@ pool:
   retireAfterPages: 100    # Recycle browser after this many total pages
   retireAfterMs: 3600000   # Recycle after 1 hour max
   idleTimeoutMs: 300000    # Close idle browsers after 5 minutes
+  pageTimeoutMs: 30000     # Connect timeout for pool browsers
 ```
 
 | Setting | Default | What it does |
@@ -352,6 +382,7 @@ pool:
 | retireAfterPages | 100 | After serving this many total pages, the session is marked for retirement. It finishes active pages, then closes. This prevents Chrome memory leaks from accumulating over time. |
 | retireAfterMs | 3600000 | Maximum lifetime of a browser session (1 hour). Even if the page count hasn't been reached, long-running sessions are recycled. |
 | idleTimeoutMs | 300000 | Close idle sessions (no active pages) after this many milliseconds. Only applies to sessions above minSessions, the pool never closes below the minimum. |
+| pageTimeoutMs | 30000 | How long the pool waits to connect a browser through the gateway. A page held longer than twice this value is force-released. |
 
 **When to adjust these settings:**
 

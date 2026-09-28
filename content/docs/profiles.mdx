@@ -84,13 +84,13 @@ providers:
     profile: team-bravo
 ```
 
-**Cloud dashboard:** on the Providers page, open the "Which profiles it serves" dropdown for each provider and pick the profile it serves. The options are:
+**Dashboard:** on the provider form (Providers page, New Provider or Edit), open the "Which profiles it serves" dropdown for each provider and pick the profile it serves. The options are:
 
 - **Sessions with no profile**. The slot serves connections without `?profile=`.
 - **Any profile**. Allowed only on the self-hosted runtime (browserserve). Selecting this on an external provider is rejected on save.
 - **Only `<profile>`**. The slot serves only that specific profile. This is the equivalent of `profile: X` in `gateway.yml`.
 
-`multiProfile: true` on non-runtime providers is **rejected** at add-time and at config-load. The gateway returns a 400 from `POST /v1/providers` and logs a config error on boot. Only the self-hosted runtime is trusted to serve multiple profiles concurrently.
+`multiProfile: true` on non-runtime providers is **rejected** when a provider is added or edited, and at startup. `POST /v1/providers` and `PUT /v1/providers/:id` return a 400. On boot, the gateway logs a config error and turns the flag off for that provider. Only the self-hosted runtime is trusted to serve multiple profiles concurrently.
 
 An unpinned external slot ("Sessions with no profile", or no `profile:` field) serves only stateless traffic (connections with no `?profile=`).
 
@@ -118,7 +118,7 @@ Before every subsequent inject, both sentinels are probed. If either holds a dif
   "providerId": "cloud-primary",
   "currentProfile": "acme",
   "requestedProfile": "bravo",
-  "hint": "This provider is holding state from a different profile. Pin one profile per external provider slot with `profile: X` in gateway.yml, or switch to the self-hosted runtime for multi-profile use."
+  "hint": "This provider currently holds a different profile's state. Retry with a different provider, or wait for the browser instance to release."
 }
 ```
 
@@ -132,17 +132,16 @@ Marker cookies and marker `localStorage` are filtered out of every captured prof
 
 ## Concurrent Same-Profile Writes
 
-Only one session can hold a profile's write lock at a time. If a second session opens the same profile with write-back while the first is still active, the second waits up to 15 seconds for the first to release. If the wait runs out, the request is rejected with HTTP 409 and a `Retry-After` header.
+Only one session can hold a profile's write lock at a time. If a second session opens the same profile with write-back while the first is still active, the second waits up to 15 seconds for the first to release. If the lock frees up in that time, the second session proceeds. If the wait runs out, the connect is rejected with HTTP 409:
 
 ```
 HTTP/1.1 409 Conflict
-Retry-After: 15
-Content-Type: text/plain
+Content-Type: application/json
 
-Profile is in use by another session
+{"error":"profile \"acme-prod\" is in use by another session"}
 ```
 
-The `Retry-After` value is the maximum lock wait budget in seconds. Retry after that time to make progress.
+There is no `Retry-After` header. Retry once the first session has disconnected and its state has been saved.
 
 Read-only sessions with `?readOnly=1` never contend for the lock, so many read-only sessions can share the same profile at once. See [Read-Only vs Write-Back](#read-only-vs-write-back).
 
@@ -218,7 +217,7 @@ providers:
 
 ## One Writer At A Time
 
-A profile is edited by one write-back session at a time. When a session is using `acme-prod`, another write-back request for the same profile **waits** for it to finish (up to about 15 seconds) and then proceeds, it does not fail. Different profiles run fully in parallel, so run as many *different* profiles at once as you like.
+A profile is edited by one write-back session at a time. When a session is using `acme-prod`, another write-back request for the same profile **waits** up to 15 seconds for it to finish. If it finishes in time, the new request proceeds. If not, the new request gets HTTP 409 (see [Concurrent Same-Profile Writes](#concurrent-same-profile-writes)). Different profiles run fully in parallel, so run as many *different* profiles at once as you like.
 
 This keeps two writers from overwriting each other. It's enforced within a single gateway (even when that gateway routes to several browser instances). If multiple gateways share a profile store, don't drive the same profile as a writer from two of them at once, cross-gateway locking isn't coordinated yet. For high-concurrency reads on the same profile, use `?readOnly=1` (see [Read-Only vs Write-Back](#read-only-vs-write-back)).
 
@@ -229,7 +228,7 @@ This keeps two writers from overwriting each other. It's enforced within a singl
 | First connect with `?profile=acme` | Routes to a slot pinned to `acme` or to the runtime. Normal blank session. Disconnect captures a new blob. |
 | Subsequent connect with `?profile=acme` | Gateway decrypts the blob and replays cookies + storage before you start. |
 | Connect with `?profile=acme&readOnly=1` | Loads the profile but never saves it back. No lock. Many read-only sessions can share it at once. |
-| Concurrent write-back connects with `?profile=acme` | The first uses it. A second waits up to about 15s for it to finish, then proceeds. |
+| Concurrent write-back connects with `?profile=acme` | The first uses it. A second waits up to 15s for it to finish. It proceeds if the first finishes in time, otherwise it gets HTTP 409. |
 | Concurrent connects with **different** profile ids | Run fully in parallel. No contention. |
 | Connect with `?profile=` matching no pinned slot | HTTP 400. `No provider is configured to serve profile 'X'. Pin a provider slot with 'profile: X'.` |
 | Connect with `?profile=` and the provider holds a different profile's residue | HTTP 409 `provider_holds_different_profile` (see [Provider Residue Detection](#provider-residue-detection)). |
@@ -240,7 +239,7 @@ This keeps two writers from overwriting each other. It's enforced within a singl
 - **Encryption.** AES-256-GCM with envelope encryption, every profile has a unique 256-bit Data Encryption Key (DEK) wrapped with the global Key Encryption Key (KEK) derived from `BG_ENCRYPTION_KEY` via scrypt. The DEK rotates per profile, the KEK rotates when you change the env var.
 - **Anti-swap.** The profile id is bound into the encryption (Additional Authenticated Data). Renaming the blob on disk makes it undecryptable, by design. This prevents an attacker from substituting one profile for another even with file system access.
 - **Key check.** Each profile carries a Key Check Value (KCV) that's verified before decryption. If you set the wrong `BG_ENCRYPTION_KEY` after rotating, the gateway reports "wrong key for profile X" instead of silently producing garbage.
-- **Auth.** The REST endpoints under `/v1/profiles/*` use the same `BG_TOKEN` auth as every other route. The dashboard uses an HttpOnly cookie signed against the token.
+- **Auth.** The REST endpoints under `/v1/profiles/*` use the same `BG_TOKEN` auth as every other route. The dashboard uses an HttpOnly cookie signed against the token; it lasts up to 30 days and ends when the gateway restarts or anyone logs out.
 - **What you must do.** Store the encryption key like any other production secret. If you lose it, every stored profile becomes permanently unreadable, there is no recovery.
 
 ## Profile Lifecycle
@@ -302,9 +301,33 @@ The gateway streams capture/inject so memory pressure is bounded, but very large
 | `/v1/profiles` | GET | List profile metadata (no payloads) |
 | `/v1/profiles/:id` | GET | Single profile metadata |
 | `/v1/profiles/:id` | DELETE | Permanent delete (refuses while locked) |
-| `/v1/profiles/:id/export` | GET | Download the encrypted `.bgp` blob |
-| `/v1/profiles/import` | POST | Upload a `.bgp` blob (id is taken from the blob's encryption AAD) |
-| `/v1/profiles/setup` | POST | One-click enable, appends profiles block to `gateway.yml`. Encryption key is auto-managed under `$BG_DATA_DIR/.encryption-key` on the next boot. |
+| `/v1/profiles/create` | POST | Create an empty profile so it shows in the list before its first session. Body: `{"id": "acme-prod"}`. Returns 409 if the id exists. |
+| `/v1/profiles/:id/export` | GET | Download the encrypted `.bgp` blob. Add `?format=playwright` to download a Playwright `storageState` JSON instead (decrypted, so treat it as a secret). |
+| `/v1/profiles/import` | POST | Upload a `.bgp` blob with `Content-Type: application/octet-stream` (id is taken from the blob's encryption AAD). Or send a Playwright `storageState` JSON with `Content-Type: application/json` and `?id=<profile-id>`. |
+| `/v1/profiles/setup` | POST | One-click enable, appends a `profiles` block to `gateway.yml`. Encryption key is auto-managed under `$BG_DATA_DIR/.encryption-key` on the next boot. Available while profiles are off. |
+| `/v1/profiles/disable` | POST | Turns profiles off in `gateway.yml`. Saved profiles stay on disk. Restart required. |
+
+Profile ids start with a letter or number and may contain letters, numbers, dots, dashes and underscores, up to 128 characters.
+
+### Moving profiles to and from Playwright
+
+If you already have a Playwright `storageState` file (from `context.storageState({ path })`), import it as a profile:
+
+```bash
+curl -X POST "http://localhost:9500/v1/profiles/import?id=acme-prod" \
+  -H "Authorization: Bearer $BG_TOKEN" \
+  -H "Content-Type: application/json" \
+  --data-binary @storage-state.json
+```
+
+To go the other way, download a profile as `storageState` and pass it to `browser.newContext({ storageState })`:
+
+```bash
+curl -H "Authorization: Bearer $BG_TOKEN" \
+  "http://localhost:9500/v1/profiles/acme-prod/export?format=playwright" -o storage-state.json
+```
+
+Playwright's `storageState` holds cookies and `localStorage` only, so `IndexedDB` does not carry across in either direction.
 
 All endpoints use the gateway's standard `BG_TOKEN` auth.
 
@@ -313,12 +336,13 @@ All endpoints use the gateway's standard `BG_TOKEN` auth.
 The **Profiles** page in the dashboard at `http://localhost:9500/web/profiles/`:
 
 - Lists every profile with last-updated, size, and DEK version
-- **+ New Profile** generates a `?profile=<id>` URL you can paste into your code
-- Per-row **Copy WS URL** copies the full connect URL with the profile id baked in
-- Per-row **Export** downloads the encrypted blob for backup or transfer
+- **+ New Profile** creates an empty profile and gives you a `?profile=<id>` URL you can paste into your code
+- **Import** uploads a `.bgp` blob or a Playwright `storageState` JSON
+- Per-row **Copy read-write** and **Copy read-only** copy the full connect URL with the profile id baked in
+- Per-row **Export** downloads the encrypted blob for backup or transfer, or a Playwright `storageState` JSON
 - Per-row **Delete** removes the blob (refuses if a session currently holds the lock)
 - **Enable Profiles** wizard (shown when the feature is off) generates a key and applies the config
-- **Recent Replays** appears on the per-profile detail page when [session replay](/replays) is enabled
+- **Disable** turns the feature off in `gateway.yml` (profiles stay on disk, restart required)
 
 ## Troubleshooting
 
@@ -331,8 +355,8 @@ No provider slot is pinned to `X` and no runtime provider is configured. Add `pr
 **"Profile not found" on a connect that worked moments ago.**
 The id is case-sensitive. `acme-prod` and `Acme-Prod` are different profiles.
 
-**409 with `LOCK_HELD`.**
-Another session held the profile for longer than the ~15s wait window. For many concurrent sessions on one profile, use `?readOnly=1`. For concurrent *writers*, give each its own id.
+**409 `profile "X" is in use by another session`.**
+Another session held the profile for longer than the 15s wait window. For many concurrent sessions on one profile, use `?readOnly=1`. For concurrent *writers*, give each its own id.
 
 **"Wrong encryption key" / decryption fails.**
 The `BG_ENCRYPTION_KEY` env var was changed. Either restore the old key or delete the affected blobs (they're unreadable without the original key).
