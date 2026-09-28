@@ -1,6 +1,6 @@
 ---
 title: "Web Dashboard"
-description: "browser-gateway includes a built-in web dashboard for providers, sessions, profiles, replays, logs, webhooks, and config, served from the same port as the gateway."
+description: "browser-gateway includes a built-in web dashboard for providers, sessions, profiles, logs, webhooks, and config, served from the same port as the gateway."
 ---
 
 browser-gateway includes a built-in web dashboard for monitoring and managing your gateway. No extra tools needed, it's served from the same port as the gateway itself.
@@ -14,18 +14,18 @@ http://localhost:9500/web
 - See which providers are healthy and which are down
 - Monitor active browser sessions in real time
 - Add, edit, delete, and test providers without touching config files
-- Manage saved profiles and browse session replays
+- Manage saved profiles
 - Try the REST API and watch a live browser view from the browser
 - Add, edit, and test webhooks
 - Follow the gateway's logs without terminal access
 - Edit your `gateway.yml` with syntax highlighting and validation
 - Copy the WebSocket connection URL for your code
 
-Everything updates automatically every 3-5 seconds.
+Pages with live data refresh on their own, every 3 to 10 seconds.
 
 ## Pages
 
-The dashboard has 10 pages, accessible from the sidebar: Overview, Providers, Sessions, API, Playground, Profiles, Replays, Logs, Webhooks, and Config.
+The dashboard has 9 pages, accessible from the sidebar: Overview, Providers, Sessions, API, Playground, Profiles, Logs, Webhooks, and Config. Session recordings have no dashboard page; read them through the [Replays REST API](/replays#rest-api).
 
 ### Overview
 
@@ -33,21 +33,19 @@ The first thing you see. Shows the current state of your gateway at a glance.
 
 **What's on this page:**
 
-- **Connection Endpoint**. The WebSocket URL your code should connect to (e.g., `ws://localhost:9500/v1/connect`). Includes copy-paste code snippets for both Playwright and Puppeteer. The URL automatically adjusts based on how you're accessing the dashboard, if you're on HTTPS, it shows `wss://`, otherwise `ws://`.
-
-- **Stats Cards**. Three cards showing:
+- **Stats Cards**. Four cards showing:
   - Active sessions (how many browser connections are open right now)
+  - Queued (how many requests are waiting for a free provider slot)
   - Providers (how many are healthy out of total, e.g., "2/3")
   - Strategy (which load balancing strategy is active)
 
-- **Provider List**. A card for each provider showing:
-  - Health status (green dot = healthy, red pulsing dot = down or in cooldown)
-  - Active connections vs. maximum (e.g., "3/10")
-  - Average connection latency
-  - Total connections routed (lifetime)
-  - Cooldown status (if the provider is temporarily skipped due to failures)
+- **Connection Endpoint**. The WebSocket URL your code should connect to (e.g., `ws://localhost:9500/v1/connect`), with a copy button. When `BG_TOKEN` is set, the token is shown masked and the copy button writes the real value.
 
-**If you have no providers yet**, the overview shows a friendly "Get Started" card explaining what providers are and linking to the Providers page.
+- **Quick Start**. Copy-paste snippets for Puppeteer, Playwright, Stagehand, browser-use, and raw CDP, each already pointed at this gateway.
+
+Per-provider health lives on the Providers page.
+
+**If you have no providers yet**, the overview shows a "Get started" card linking to the Providers page.
 
 ### Providers
 
@@ -70,7 +68,7 @@ Under **Advanced**, an editor for custom headers (Bearer tokens, API keys, custo
 **Editing** an existing provider opens `/web/providers/edit?slug=<name>` with the same form pre-filled.
 
 **Per-provider card** on the list page shows:
-- Health status (green dot = healthy, red pulsing dot = down or in cooldown)
+- Health status: a dot plus a label (Ready, Paused, Not reachable, Disabled, or Checking). The dot pulses red when the provider is paused or not reachable
 - Priority and weight lines, each with the plain-English effect below
 - Active connections vs. max, average latency, total connections routed
 - An on/off switch. Off takes the provider out of routing without deleting it; the card shows Disabled until it is switched back on
@@ -86,6 +84,7 @@ A live table of every active browser connection going through the gateway.
 |--------|--------------|
 | Session | Short ID for the connection |
 | Provider | Which provider this session is routed to |
+| Profile | The saved profile the session uses, if any |
 | Connected | When the connection was opened |
 | Duration | How long the session has been active |
 | Messages | Total WebSocket messages exchanged |
@@ -96,7 +95,7 @@ When no sessions are active, it shows "No active sessions."
 
 ### API
 
-The REST API reference and try-it surface. Every REST endpoint (screenshot, PDF, page content, and the rest) is listed with its parameters and a request you can run against your own providers from the browser. See [REST API](/rest-api) for the full reference.
+The REST API reference and try-it surface. Each one-shot REST endpoint (screenshot, page content, and scrape) is listed with its parameters and a request you can run against your own providers from the browser. See [REST API](/rest-api) for the full reference.
 
 ### Playground
 
@@ -105,10 +104,6 @@ An in-browser CDP viewer that streams a live browser session to the dashboard. C
 ### Profiles
 
 Manage saved browser profiles: a logged-in session captured once and replayed into later sessions. Copy a profile's connect URL (including a read-only variant), see what each profile stores, and delete profiles you no longer need. See [Profiles](/profiles).
-
-### Replays
-
-Browse and play back recorded sessions frame by frame. Retention and a per-session size cap are configurable. See [Replays](/replays).
 
 ### Config
 
@@ -120,7 +115,7 @@ A full YAML editor for your `gateway.yml` file.
 - Click **Save** to write changes back to disk (a backup is created automatically before each save)
 - Click **Discard** to throw away unsaved changes
 
-The editor shows the file path where the config is stored. Validation feedback appears below the editor, green for valid, red with specific error messages for invalid YAML.
+The editor shows the file path where the config is stored. Validation feedback appears below the editor: a confirmation with the provider count when the YAML is valid, or the specific errors when it is not.
 
 **Tip**: Provider changes made here require a gateway restart to take effect. For live provider changes, use the Providers page instead.
 
@@ -130,7 +125,7 @@ A live view of the gateway's structured logs, streamed into the dashboard so you
 
 ### Webhooks
 
-Add, edit, test, and delete webhooks, and choose which events each one receives (session started and ended, provider up and down, and more). See [Webhooks](/operating/webhooks).
+Add, edit, test, and delete webhooks, and choose which events each one receives: a provider paused after repeated failures, a queued request timing out, or the gateway shutting down. See [Webhooks](/operating/webhooks).
 
 ## Authentication
 
@@ -141,9 +136,14 @@ If you've set `BG_TOKEN` (via environment variable or `.env` file), the dashboar
 1. Open the dashboard, you see a login form
 2. Enter your gateway token (the value of `BG_TOKEN`)
 3. The dashboard sets a secure HttpOnly cookie in your browser
-4. You stay logged in until you log out or the cookie expires
+4. You stay logged in for up to 30 days
 
-The cookie is tied to your `BG_TOKEN` value, so it survives gateway restarts. If you change `BG_TOKEN`, everyone gets logged out.
+You are logged out when any of these happen:
+
+- 30 days pass since you logged in
+- The gateway restarts. Each gateway process signs cookies with its own session key, so log in again after a restart or redeploy
+- Anyone logs out. Logging out rotates the session key, which ends every dashboard session, not only yours
+- `BG_TOKEN` changes
 
 **If `BG_TOKEN` is not set**, there's no login form, the dashboard is open to anyone who can reach it. Only do this on private networks or localhost.
 
@@ -189,7 +189,7 @@ The gateway still works normally, you won't have the `/web` route.
 
 ## Tips
 
-- **The overview page is your health check.** Glance at it to see if all providers are green and how many sessions are active.
+- **The overview page is your health check.** Glance at it to see how many providers are healthy, how many sessions are active, and whether anything is queued.
 - **Test before you save.** When adding a provider, always use the test button to verify connectivity before saving. Saves you from debugging typos in URLs.
 - **Use the config page for advanced settings.** Things like cooldown thresholds, queue size, and webhook URLs are easier to set in YAML than through individual forms.
 - **Sessions page helps debug "where did my connection go?"** If a client connects and you're not sure which provider it landed on, check the sessions table.
