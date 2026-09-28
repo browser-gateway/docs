@@ -36,7 +36,7 @@ Any provider that speaks CDP over WebSocket should work. The gateway probes each
 | Profile inject (cookies + `localStorage`) | Yes, any profile | Yes, only the pinned profile |
 | Profile inject (`IndexedDB` + service workers) | Yes | No, CDP has no wire format for these |
 | Profile capture-on-navigate (multi-origin) | Yes | Yes |
-| `multiProfile: true` (many profiles per slot) | Yes | Rejected at add-time |
+| `multiProfile: true` (many profiles per slot) | Yes | Rejected when added or edited, turned off at startup |
 | Session replay (`?session_record=true`) | Yes | Yes when the provider supports `Page.startScreencast` |
 | Live playground (`WS /v1/live`) | Yes | Yes |
 | Read-only profile sessions (`?readOnly=1`) | Yes | Yes |
@@ -45,5 +45,5 @@ Any provider that speaks CDP over WebSocket should work. The gateway probes each
 ## Known Limitations
 
 - **Session reconnection** works with Puppeteer and raw CDP clients. Playwright destroys contexts on disconnect, so it does not survive a reconnect. See [Session Reconnection](/sessions#session-reconnection).
-- **REST endpoints** (`/v1/screenshot`, `/v1/content`, `/v1/scrape`) run against the gateway's internal browser pool, not routed providers, so they don't participate in failover.
+- **REST endpoints** (`/v1/screenshot`, `/v1/content`, `/v1/scrape`) get their browsers by connecting to the gateway's own `/v1/connect`, so they are routed, queued and failed over like any other connection. A request that names a `provider` is pinned to it and does not fail over. The pool keeps those browsers open between requests (see [Session Pool](/configuration#session-pool)).
 - **Non-Chromium engines** (Firefox, WebKit) are not supported. CDP is Chromium-specific.

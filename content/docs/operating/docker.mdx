@@ -11,6 +11,7 @@ Run browser-gateway in Docker for production deployments.
 docker run -d \
   --name browser-gateway \
   -p 9500:9500 \
+  -v bg_data:/data \
   -v ./gateway.yml:/app/gateway.yml:ro \
   -e PROVIDER_TOKEN=your-token \
   -e BG_TOKEN=your-gateway-secret \
@@ -18,6 +19,19 @@ docker run -d \
 ```
 
 Open `http://localhost:9500/web` to access the dashboard.
+
+## Persistent Data
+
+The gateway keeps its state in `/data` inside the container (`BG_DATA_DIR`):
+
+- saved [profiles](/profiles)
+- the profile encryption key (`/data/.encryption-key`), unless you pass `BG_ENCRYPTION_KEY`
+- [session recordings](/replays)
+- `gateway.yml`, when you manage providers from the dashboard without mounting a config file
+
+The image does not create a volume for you. Without a mount on `/data`, all of this is lost when the container is removed or recreated, including on every image update. Losing the encryption key makes every saved profile unreadable. Always mount a named volume or a host directory on `/data`, as the examples on this page do.
+
+Active sessions, parked sessions, the request queue and provider health are kept in memory and reset on restart.
 
 ## Docker Compose
 
@@ -28,23 +42,29 @@ services:
     ports:
       - "9500:9500"
     volumes:
+      - bg_data:/data
       - ./gateway.yml:/app/gateway.yml:ro
     environment:
       - PROVIDER_TOKEN=${PROVIDER_TOKEN}
       - BG_TOKEN=${BG_TOKEN}
     restart: unless-stopped
+
+volumes:
+  bg_data:
 ```
 
-See `examples/docker-compose.yml` in the repo for a ready-to-use template.
+See `docker-compose.yml` at the root of the repo for a ready-to-use template with the same volume and a health check.
 
 ## No Config File
 
-The gateway starts without a config file. You can add providers through the dashboard UI at `/web/providers`.
+The gateway starts without a config file. It creates `/data/gateway.yml` on first boot, and providers you add through the dashboard at `/web/providers` are saved there.
 
 ```bash
 docker run -d \
   --name browser-gateway \
   -p 9500:9500 \
+  -v bg_data:/data \
+  -e BG_TOKEN=your-gateway-secret \
   ghcr.io/browser-gateway/server:latest
 ```
 
@@ -55,6 +75,8 @@ docker run -d \
 ```bash
 -v ./gateway.yml:/app/gateway.yml:ro
 ```
+
+A mounted `/app/gateway.yml` is used only when `/data/gateway.yml` does not exist, because the gateway checks the data directory first. To be explicit, set `BG_CONFIG_PATH=/app/gateway.yml`. A read-only mount (`:ro`) also means dashboard edits to providers and webhooks cannot be saved; drop `:ro` if you want to edit from the dashboard.
 
 Secrets in the config use `${ENV_VAR}` references. Pass the actual values as environment variables:
 
@@ -68,9 +90,11 @@ Secrets in the config use `${ENV_VAR}` references. Pass the actual values as env
 |----------|-------------|
 | `BG_TOKEN` | Auth token for gateway access |
 | `BG_ENCRYPTION_KEY` | Profile encryption key. Auto-generated and persisted at `/data/.encryption-key` if unset. Override for centralized key management (Vault, AWS Secrets Manager). |
-| `BG_DATA_DIR` | Where the gateway stores config, profiles, and the encryption key. Default `/data`. |
+| `BG_DATA_DIR` | Where the gateway stores config, profiles, recordings and the encryption key. Default `/data`. |
 | `BG_CONFIG_PATH` | Path to gateway.yml. Default `$BG_DATA_DIR/gateway.yml`. |
 | `BG_ALLOWED_ORIGINS` | Comma-separated CORS allowlist. Default: same-origin only. |
+| `BG_PUBLIC_URL` | Public base URL the gateway gives to agents, e.g. `https://gateway.example.com`. Set this when the container sits behind a domain or proxy. |
+| `BG_TRUST_PROXY` | Set to `1` behind a reverse proxy that overwrites `X-Forwarded-Host`. |
 | `BG_ALLOWED_HOSTS` | Comma-separated list of extra `Host` header values accepted on `/mcp` when `BG_TOKEN` is unset. Default: loopback only. |
 | `PORT` | Server port. Default 9500. 12-factor convention used by Railway, Render, Fly, Heroku. |
 | `HOST` | Bind interface. The image sets this to `0.0.0.0`, so a container listens on every interface whether or not `BG_TOKEN` is set. |
@@ -90,12 +114,16 @@ services:
     image: ghcr.io/browser-gateway/server:latest
     ports: ["9500:9500"]
     volumes:
+      - bg_data:/data
       - ./gateway.yml:/app/gateway.yml:ro
 
   playwright:
     image: mcr.microsoft.com/playwright:v1.50.1-noble
     command: npx -y playwright@1.50.1 run-server --port 3000 --host 0.0.0.0
     shm_size: '1gb'
+
+volumes:
+  bg_data:
 ```
 
 Config:
@@ -140,7 +168,7 @@ docker compose pull
 docker compose up -d
 ```
 
-The gateway starts immediately. No migrations needed (all state is in-memory).
+The gateway starts immediately. No migrations needed. Profiles, recordings and the encryption key carry over as long as `/data` is on a volume.
 
 ## Image Details
 
@@ -149,6 +177,7 @@ The gateway starts immediately. No migrations needed (all state is in-memory).
 | Registry | `ghcr.io/browser-gateway/server` |
 | Base image | `node:22-slim` |
 | Size | ~370MB |
-| User | Non-root (`bguser`) |
+| User | Non-root (`bguser`, uid 1001). The entrypoint starts as root only to take ownership of `/data`, then drops privileges. |
 | Port | 9500 |
+| Data directory | `/data` (mount a volume here) |
 | Health check | Built-in (30s interval) |

@@ -30,29 +30,41 @@ See [Profiles → Read-only vs write-back](/profiles#read-only-vs-write-back) fo
 
 ## Keep-Alive Duration
 
-Sessions idle out after a few minutes of inactivity by default. A duration selector next to the Start button lets you extend the keep-alive window for long interactive sessions (log-in flows with 2FA, checkout tests, and similar).
+A playground session has a fixed length, 5 minutes by default. The duration selector next to the Start button sets it anywhere from 1 to 20 minutes, which is useful for long interactive work such as log-in flows with 2FA or checkout tests. About 30 seconds before the end the page warns you, and when the time is up the session closes.
 
 ## Under The Hood
 
-The playground uses the `/v1/live` WebSocket endpoint. Auth uses the standard `BG_TOKEN`. The isomorphic client is exposed as an OSS subpath:
+The playground uses the `/v1/live` WebSocket endpoint. Auth uses the standard `BG_TOKEN`. The client runs in the browser and is exposed as a package subpath, so you can embed the same viewer in your own UI:
 
 ```ts
 import { LiveClient } from "browser-gateway/live-client";
 
 const client = new LiveClient({
-  wsUrl: "ws://localhost:9500/v1/live",
-  token: "YOUR_BG_TOKEN",
+  onOpen: () => console.log("connected"),
+  onFrame: (bitmap, meta) => {
+    // draw the frame, e.g. canvas.getContext("2d").drawImage(bitmap, 0, 0)
+  },
+  onUrl: (url) => console.log("page url", url),
+  onError: (code, message) => console.error(code, message),
+  onClose: ({ code, reason }) => console.log("closed", code, reason),
+  onExpiring: (secondsLeft) => console.log(`closing in ${secondsLeft}s`),
 });
 
-await client.connect({
+client.connect({
+  wsBase: "ws://localhost:9500",   // defaults to the current page's host
+  token: "YOUR_BG_TOKEN",
   provider: "runtime",
   profile: "acme-prod",
-  readOnly: false,          // uncheck the "Save changes to profile" box → true
-  keepAliveMs: 15 * 60_000,
+  readOnly: false,                 // true = load the profile but do not save changes
+  keepAliveSeconds: 15 * 60,       // 60 to 1200 seconds; omit for no time limit
 });
+
+client.navigate("https://en.wikipedia.org/wiki/Web_browser");
 ```
 
-The same `LiveClient` powers the dashboard's playground page and can be embedded in your own UI.
+The constructor takes your event handlers. `connect()` opens the socket and returns immediately; `onOpen` fires once it is connected. The client also has `navigate()`, `navAction("back" | "forward" | "reload")`, `setViewport()`, `sendPaste()` and `close()`. It does not reconnect on its own; if the connection drops, `onClose` fires and you call `connect()` on a new client.
+
+The same `LiveClient` powers the dashboard's playground page.
 
 ## When To Use Which Recording Tool
 
@@ -60,4 +72,4 @@ The same `LiveClient` powers the dashboard's playground page and can be embedded
 |---|---|
 | Watch what a background agent saw after the fact | [Session Replays](/replays) with `?session_record=true` |
 | Drive a browser interactively from the dashboard | Playground |
-| Both (drive interactively and keep the recording) | Playground plus the replay plugin attaches automatically to `/v1/live` sessions |
+| Both (drive interactively and keep the recording) | Not available. Playground sessions are not recorded; drive the browser from code with `?session_record=true` instead |

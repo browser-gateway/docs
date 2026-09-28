@@ -10,11 +10,11 @@ description: browser-gateway is the open router for cloud browsers.
 ## What it does
 
 - **Router**: priority chains, weighted round-robin, latency-aware, least-connections. Failover and cooldowns per provider.
-- **Profiles**: capture cookies + localStorage + IndexedDB on session end, inject on next connect. Encrypted at rest with a key you control.
-- **Session replay**: record CDP screencast frames per session, play them back in the dashboard.
+- **Profiles**: capture cookies + localStorage on session end, inject on next connect, on any provider. IndexedDB and service workers also round-trip on the [self-hosted runtime](/browserserve). Encrypted at rest with a key you control.
+- **Session replay**: record CDP screencast frames for the sessions you choose, and read them back through the REST API.
 - **Live view**: watch any session live from the dashboard.
 - **REST + MCP + WebSocket**: three protocols, one gateway. Puppeteer, Playwright, Stagehand, MCP clients all work unchanged.
-- **Dashboard**: providers, sessions, profiles, replays, logs, live playground, config editor.
+- **Dashboard**: providers, sessions, profiles, logs, webhooks, live playground, config editor.
 
 ## When to use it
 
