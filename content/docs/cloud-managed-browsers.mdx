@@ -1,0 +1,74 @@
+---
+title: Managed browsers
+description: Browsers run by Browser Gateway, paid per second from your credits. Use them as a provider or as a fallback for your own.
+---
+
+Applies to `app.browsergateway.com` (cloud). The OSS gateway routes to providers you bring; it has no managed browsers.
+
+Managed browsers are browsers we run for you. You do not need an account with any browser provider: add managed browsers to a router and connect through the same address you already use. They are charged per second from your [credits](/billing).
+
+## How they work
+
+- **One fresh browser per session.** Every session gets a new, empty browser that is discarded when the session ends. Two sessions never share a browser, and no customer ever shares a machine with another.
+- **Two regions.** EU (Belgium) and US (Virginia). You choose the region per router.
+- **Same address.** Clients connect to `wss://cdp.browsergateway.io/v1/connect?token=<router key>` exactly as with any provider. Puppeteer, Playwright, the [Live playground](/live-playground), the [Data API](/cloud-data-api) and [agents](/cloud-mcp) all work unchanged.
+- **Up to 5 at once per workspace.** Enterprise contracts can raise this.
+- **Sessions last up to 60 minutes.**
+
+## Adding managed browsers
+
+1. Open **Providers** and choose **Add provider**.
+2. Choose **Use managed browsers**.
+3. Pick how the router uses them: **As a provider** or **As a fallback**. A router uses managed browsers one way or the other, never both, and only once.
+4. Pick the region and save.
+
+The managed browsers card always shows first on the Providers page, marked as run by Browser Gateway. Use **Edit** to change the region or settings, or to switch between provider and fallback.
+
+### As a provider
+
+Managed browsers take sessions like any provider you add. They have the same settings:
+
+| Setting | What it does |
+|---|---|
+| Priority and weight | Where they sit in the router's [strategy](/providers#multiple-providers). With round-robin or weighted routing they share traffic with your other providers. |
+| Which sessions it serves | Any session, or only sessions using one profile. |
+| Region | EU (Belgium) or US (Virginia). |
+| On/off switch | Pauses managed browsers without removing them. |
+
+To send one session to managed browsers on purpose, pin it: add `&provider=<name>` to the connect address, using the name shown on the card.
+
+### As a fallback
+
+Managed browsers stay out of normal routing and take a session only when your own providers cannot:
+
+| Switch | When managed browsers take the session |
+|---|---|
+| **On fail** | Every one of your providers failed to connect. |
+| **When full** | Every one of your providers is at its session limit. The session goes straight to managed browsers instead of waiting in the queue. |
+
+Turn on one or both. A router with no providers of its own and a fallback switch on is served by managed browsers.
+
+A session pinned to one of your providers (`&provider=<name>`) never falls back.
+
+## Price
+
+`$0.002` per minute, billed per second, from your credits.
+
+- A managed session starts only when your credits cover one minute for every managed session already running plus the new one.
+- While sessions run, credits are charged every 10 seconds. When they run out, every managed session in the workspace closes within about 10 seconds with WebSocket close code `4402` and reason `managed-browsers-balance-empty`.
+- Managed sessions do not count toward the 10,000 BYOK sessions included each month.
+- Recording and traces work on managed browsers and are charged at their normal rates on top. See [Billing](/billing).
+
+## Profiles
+
+A managed browser that is not pinned to a profile can save changes to any profile, because every session starts on a fresh machine. Cookies and localStorage are saved and restored. IndexedDB and service workers are not carried on managed browsers; use [browserserve](/browserserve) if you need them.
+
+## When a session is refused
+
+| You see | Meaning |
+|---|---|
+| `managed browsers refused: insufficient_balance` | Not enough credits to start. Top up on the Billing page. |
+| `managed browsers refused: cap_reached` | 5 managed sessions are already running in this workspace. |
+| `managed browsers skipped: ...` added to a `502` | A fallback was tried and refused for the reason shown; your own providers' errors are listed first. |
+| HTTP `429` "queue timed out" | Managed browsers used as a provider were full, like any provider at its limit. |
+| Close code `1013` `managed-browsers-unavailable` | Managed browsers were switched off while the session ran. |

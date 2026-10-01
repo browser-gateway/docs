@@ -106,6 +106,10 @@ providers:
 
 Use `http://` for Chrome CDP, the gateway auto-discovers the full WebSocket path via `/json/version`. You can also use the full `ws://` URL if you already have it.
 
+### Managed browsers (cloud)
+
+On the cloud you can also use browsers we run, with no provider account: as a provider or as a fallback when your own providers fail or are full. Paid per second from your credits. See [Managed browsers](/cloud-managed-browsers).
+
 ## Connection Modes
 
 The gateway is protocol-agnostic - it forwards raw bytes without parsing. However, your client needs to use the correct connection method for the provider type:

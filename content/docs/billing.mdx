@@ -7,7 +7,7 @@ Applies to `app.browsergateway.com` (cloud). The OSS `browser-gateway` npm packa
 
 ## The model in one paragraph
 
-No subscriptions. You start free. Everything that costs us real money (session recording, session traces, BYOK usage above the monthly ceiling) draws from your wallet at a published per-unit rate. When you want more, you top up. The amount you top up is exactly the amount added to your wallet: we absorb the card processing cost. Our revenue comes from margin on the metered features you use. Your browser provider bill (Browserless, Steel, Browserbase, Lightpanda, Cloudflare Browser Rendering, or your own runtime) is separate.
+No subscriptions. You start free. Everything that costs us real money (session recording, session traces, BYOK usage above the monthly ceiling) draws from your wallet at a published per-unit rate. When you want more, you top up. The amount you top up is exactly the amount added to your wallet: we absorb the card processing cost. Our revenue comes from margin on the metered features you use. Your browser provider bill (Browserless, Steel, Browserbase, Lightpanda, Cloudflare Browser Rendering, or your own runtime) is separate. [Managed browsers](/cloud-managed-browsers), the browsers we run, are paid from your wallet instead.
 
 ## Account states
 
@@ -43,6 +43,7 @@ Anything below requires wallet balance greater than zero. Charges draw at sessio
 - **Session traces** (`observability=true`) at `$0.05` per 1,000 captured events.
 - **[Cloud REST API](/cloud-rest-api)** with a raised daily cap: 100,000 calls per day, up from 5,000.
 - **BYOK sessions above the 10,000/mo ceiling** at `$0.0005` per session. Data API calls count as sessions and share this ceiling.
+- **[Managed browsers](/cloud-managed-browsers)** at `$0.002` per minute, billed per second while the session runs. They do not count toward the 10,000/mo ceiling.
 
 ## Enterprise
 
@@ -56,6 +57,7 @@ Enterprise is a contract, not a self-serve plan. By contract we can offer a rais
 | Bandwidth | Free, unlimited |
 | Session recording | `$0.007` per minute of encoded video, billed per second |
 | Session traces (observability) | `$0.05` per 1,000 events |
+| Managed browsers | `$0.002` per minute, billed per second |
 | Wallet top-up fee | None. You pay what you top up. |
 | Minimum top-up | `$5` |
 | Maximum top-up | `$25,000` per transaction |
@@ -83,6 +85,7 @@ Enterprise is a contract, not a self-serve plan. By contract we can offer a rais
 - BYOK routing continues free below the 10,000/mo ceiling.
 - Above the ceiling, CDP connects return HTTP 402 until you top up. [Data API](/cloud-data-api) calls are not refused: each one is still charged `$0.0005`, and the balance goes below zero.
 - The Cloud REST API drops to 5,000 calls per day.
+- Managed browsers stop: running managed sessions close within about 10 seconds (close code `4402`) and new ones are refused.
 - All other free features stay available.
 
 Recordings and traces that were in progress when the balance ran out stop cleanly. The session itself keeps running.
