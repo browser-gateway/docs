@@ -1,0 +1,116 @@
+---
+title: "Computer Use (Claude and Gemini)"
+description: "Run Claude's browser tool, Claude's computer use tool, or Gemini computer use on any browser provider in your gateway, with profiles, recording and failover."
+---
+
+Claude and Gemini can operate a browser by looking at screenshots and replying with actions such as "click here" or "type this". Neither company supplies the browser. Your code has to find one, carry out each action, take a new screenshot and send it back in exactly the format the model expects.
+
+`browser-gateway/agent-tools/computer-use` does that part. You keep your own model calls and API key. The library carries out each action on a browser reached through your gateway, so every provider you route to works, and saved profiles, session recording and failover keep applying.
+
+It supports:
+
+| Model tool | Class |
+|---|---|
+| Claude browser use tool (`browser_toolset_20260801`) | `AnthropicBrowserExecutor` |
+| Claude computer use tool (`computer_toolset_20260801`, and the earlier `computer_20251124`) | `AnthropicComputerExecutor` |
+| Gemini computer use, browser environment | `GeminiExecutor` |
+
+Using an MCP client such as Claude Code or Cursor instead? Use the [MCP server](/mcp). This library is for applications that call the model API directly.
+
+## Install
+
+```bash
+npm install browser-gateway
+```
+
+The library has no other dependencies and connects with the runtime's built-in WebSocket. It is tested on Node.js 22.
+
+## Claude in ten lines
+
+```ts
+import Anthropic from "@anthropic-ai/sdk";
+import { AnthropicBrowserExecutor, runClaudeLoop } from "browser-gateway/agent-tools/computer-use";
+
+const anthropic = new Anthropic();
+const executor = await AnthropicBrowserExecutor.connect({
+  endpoint: "wss://cdp.browsergateway.io/v1/connect?token=YOUR_ROUTER_KEY",
+  startUrl: "https://en.wikipedia.org",
+});
+
+const result = await runClaudeLoop({
+  executor,
+  task: "Find Grace Hopper's year of birth.",
+  createMessage: (request) => anthropic.messages.create({ model: "claude-sonnet-5-5", max_tokens: 1024, ...request }),
+});
+console.log(result.text);
+await executor.close();
+```
+
+`endpoint` is your gateway's connect address: `ws://localhost:9500/v1/connect?token=BG_TOKEN` for a self-hosted gateway, or your router key on the cloud. Add `&profile=work` to start logged in with a saved profile.
+
+`runClaudeLoop` sends the task, runs every action Claude returns, sends back the results and repeats until Claude answers. It keeps the last three screenshots in the conversation and replaces older ones with a short note, so long tasks do not grow without limit.
+
+For the computer use tool, use `AnthropicComputerExecutor` in the same way. On platforms that only accept the earlier tool, pass `legacy: true` and send the beta header `anthropic-beta: computer-use-2025-11-24` with your requests.
+
+## Gemini
+
+```ts
+import { GeminiExecutor, runGeminiLoop } from "browser-gateway/agent-tools/computer-use";
+
+const executor = await GeminiExecutor.connect({
+  endpoint: "wss://cdp.browsergateway.io/v1/connect?token=YOUR_ROUTER_KEY",
+  startUrl: "https://en.wikipedia.org",
+  confirm: async (request) => askYourUser(request.explanation),
+});
+
+const result = await runGeminiLoop({
+  executor,
+  task: "Find Grace Hopper's year of birth.",
+  generateContent: async (request) => {
+    const res = await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent", {
+      method: "POST",
+      headers: { "x-goog-api-key": process.env.GEMINI_API_KEY!, "content-type": "application/json" },
+      body: JSON.stringify(request),
+    });
+    return res.json();
+  },
+});
+```
+
+Gemini marks some actions, such as submitting a payment or sending a message, as needing a person's approval. The library calls `confirm` before running them. If it returns `false`, or if you pass no `confirm`, the action does not run and the loop ends with `stoppedBy: "declined"`.
+
+Gemini works in one tab, so a page that opens a new tab replaces the current page. Pass `keepTabs: true` to keep tabs separate.
+
+The loop above uses the `generateContent` endpoint. `GeminiExecutor.run` also accepts and answers calls from the Interactions API (`/v1beta/interactions`), but some API keys get every follow-up request on that endpoint refused with "Request blocked due to safety violations". If that happens, use `generateContent`.
+
+## Your own loop
+
+The helpers are optional. Every executor has `run`, which takes the model's whole reply and returns what to send back:
+
+```ts
+const response = await anthropic.messages.create({ model, max_tokens: 1024, tools: [executor.declaration()], messages });
+messages.push({ role: "assistant", content: response.content });
+messages.push({ role: "user", content: await executor.run(response.content) });
+```
+
+`run` answers only the model's browser calls. Text, thinking and your own tools in the same reply are left for you to handle. For Claude, a failed action stops the rest of that turn, as Anthropic requires, and the model sees why. For Gemini, every action runs and each result reports its own error. `pruneImages(transcript, 3)` trims old screenshots if you manage the conversation yourself.
+
+## Options
+
+| Option | Default | What it does |
+|---|---|---|
+| `endpoint` | required | Gateway connect address. Never shown in errors. |
+| `viewport` | `1440 x 900` | Page size. Screenshots are this size, scaled down only when the model's image limits require it. |
+| `startUrl` | none | Page to open before the first turn. |
+| `urls.allowedHosts` | any | Only these sites (and their subdomains) can be opened, including after redirects. |
+| `urls.blockPrivateNetworks` | `true` | Refuses localhost and private network addresses such as `10.x`, `192.168.x` and `169.254.x`. |
+| `screenshotFormat` | `png` | `jpeg` sends smaller images. |
+| `downloadPath` | denied | Allows downloads, saved to this folder on the browser's machine. |
+| `logs` (Claude browser tool) | off | Offers `read_console` and `read_network`. Query strings and token-like values are removed. |
+| `javascript` (Claude browser tool) | off | Offers `javascript_exec`. Page code runs with the page's cookies, so turn it on only for sessions with no logins. |
+
+Only `http` and `https` addresses can be opened. File upload from your machine is not supported, because the browser usually runs on another machine.
+
+## Sessions
+
+Each executor holds one browser session on your gateway. The session closes after 5 minutes with no action and always after 4 hours, as other agent sessions do. Call `close()` when the task is done. It closes the session's tabs and leaves the provider's browser running for other clients.
