@@ -82,7 +82,7 @@ Every parameter is optional. Combine as needed.
 | `profile=<id>` | Load a saved profile into the session. Default is write-back. See [Profiles](/profiles). |
 | `readOnly=1` | Combined with `profile=`, load the profile but never save changes back. Bypasses provider eligibility because nothing is written. |
 | `session_record=true` | Record the session's frames to disk. No config switch needed. See [Session Replays](/replays). |
-| `sessionId=<id>` | Reconnect to a previous session. Routes back to the same provider if the reconnect timeout hasn't elapsed. See [Session Reconnection](#session-reconnection). |
+| `sessionId=<id>` | Reconnect to a previous session: the same browser when the provider can hand it back, otherwise the same provider. See [Session Reconnection](#session-reconnection). |
 
 ## Connection States in the Gateway
 
@@ -123,17 +123,12 @@ This protects against leaked connections where a client disconnects without a pr
 
 ### Session Reconnection
 
-**What the gateway does:** when a client connects, the gateway assigns a session ID and remembers which provider that session was routed to. If the client disconnects and reconnects with the same session ID within the reconnect timeout, the gateway sends it back to the same provider.
+**What the gateway does:** when a client connects, the gateway assigns a session ID and remembers which provider that session was routed to. If the client disconnects and reconnects with the same session ID within the reconnect timeout, the gateway sends it back to the same provider. Whether the reconnect gets the **same browser** depends on the provider:
 
-**What the gateway does not do:** the gateway does not keep the browser alive itself. It does not buffer messages, replay CDP traffic, or hold any browser state on its side. Persistence depends entirely on the provider continuing to run the browser after the WebSocket closes.
+- **Providers that issue a resume token** (browserserve 0.1.18 or later with its resume window switched on) keep the browser for their window when a connection breaks and hand the gateway a token on connect. On reconnect the gateway presents that token, so all browser state is intact: open tabs, page content, cookies, localStorage and scroll position. The token never reaches your client.
+- **Other providers** usually start a fresh browser for each connection, so the reconnect lands on the same provider but in a new browser.
 
-This works because:
-- **Raw Chrome** (`--remote-debugging-port`) keeps the browser process running after a CDP client disconnects.
-- **Cloud providers like Browserless, Steel, and similar** keep browsers alive for a configured timeout after disconnect.
-
-It does not work when the provider kills the browser on disconnect (for example, a self-hosted Playwright server that ties the browser lifetime to the WebSocket).
-
-When persistence does work, all browser state (cookies, localStorage, open tabs, page content, scroll position) is intact on reconnect, because the same browser process is still running on the provider.
+The gateway does not keep the browser alive itself. It does not buffer messages, replay CDP traffic, or hold any browser state on its side.
 
 ```yaml
 gateway:
@@ -147,9 +142,11 @@ To reconnect, pass the session ID as a query parameter:
 ws://gateway:9500/v1/connect?sessionId=<session-id>
 ```
 
-The session ID is returned in the `X-Session-Id` response header when a connection is first established.
+The session ID is returned in the `X-Session-Id` response header when a connection is first established. The same response carries `X-Session-Resumable: true` when the provider issued a resume token, and a reconnect that got the same browser back answers `X-Session-Resumed: true`.
 
-A disconnected session stays reconnectable (parked) for `reconnectTimeoutMs`. List parked sessions with `GET /v1/sessions/parked`. A reconnect that arrives after the window has passed does not reattach: the gateway treats it as a new connection and routes it normally, with a fresh browser. The old ID is discarded at that point, even if the periodic cleanup has not removed it yet.
+A disconnected session stays reconnectable (parked) for `reconnectTimeoutMs`. List parked sessions with `GET /v1/sessions/parked`. A reconnect that arrives after the window has passed, or after the provider has destroyed the browser, does not reattach: the gateway treats it as a new connection and routes it normally, with a fresh browser and a new session ID.
+
+browserserve keeps a browser only when the connection breaks. A client that closes the connection normally, or calls `browser.close()`, ends the session.
 
 This is useful for:
 - AI agents that crash mid-workflow and need to resume
@@ -157,6 +154,6 @@ This is useful for:
 - Multi-step processes where losing browser state means starting over
 
 Limitations:
-- Only works with Puppeteer and raw CDP clients (Playwright destroys contexts on disconnect)
+- Playwright's `browser.close()` closes the browser, so nothing is left to reconnect to
 - Does not survive gateway restart (session registry is in-memory)
 - Does not survive browser crash at the provider

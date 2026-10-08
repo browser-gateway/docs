@@ -38,7 +38,7 @@ const browser = await chromium.connectOverCDP(
 );
 ```
 
-A successful connection returns two response headers: `X-Session-Id` (the id shown on the Sessions page) and `X-Provider` (the provider the session was routed to).
+A successful connection returns three response headers: `X-Session-Id` (the id shown on the Sessions page), `X-Provider` (the provider the session was routed to) and `X-Session-Resumable` (`true` when a dropped connection can get the same browser back, see [Reconnect after a dropped connection](#reconnect-after-a-dropped-connection)).
 
 ## Query options
 
@@ -50,12 +50,78 @@ A successful connection returns two response headers: `X-Session-Id` (the id sho
 | `readOnly=1` | With `profile`, load the profile without saving changes back. |
 | `session_record=true` | Record the session as video. Needs wallet balance. See [Recordings](#recordings). |
 | `observability=true` | Capture a trace of network requests, console output and navigations. Needs wallet balance. See [Traces](#traces). |
+| `sessionId=<id>` | Reconnect to the browser of a session whose connection dropped. See [Reconnect after a dropped connection](#reconnect-after-a-dropped-connection). |
 
 ## Session limits
 
 - Every session closes after 4 hours.
 - A session with no traffic in either direction closes after the router's idle timeout: 5 minutes by default, adjustable from 10 seconds to 14 minutes on the router (Settings, Routers, or `sessionIdleTimeoutMs` on [`PATCH /v1/routers/:id`](/cloud-rest-api#patch-v1routersid)).
 - There is no workspace-wide limit on concurrent sessions. Each provider's own `maxConcurrent` limits how many sessions it takes at once. When every eligible provider is full, the connection waits in the router's queue (50 waiting connections and 30 seconds by default, both adjustable on the router).
+
+## Reconnect after a dropped connection
+
+A WebSocket that stays open for a long time can be cut by the network between your code and the router, for example when an edge server restarts. Long agent and scraping jobs see this about once per session-hour. When the connection drops, the router keeps the session's browser for 60 seconds. Connecting again with the session id gives you the same browser, with its open tabs, page, cookies and storage as they were.
+
+```
+wss://cdp.browsergateway.io/v1/connect?token=bg_YOUR_ROUTER_KEY&sessionId=sess_...
+```
+
+When it applies:
+
+- The session runs on a provider that can hand the browser back, and the first connection answered `X-Session-Resumable: true`. Today that is a browserserve provider with its resume window switched on.
+- The session has no `profile`, `session_record` or `observability` option, and does not run on [managed browsers](/cloud-managed-browsers).
+- The connection broke. Closing the connection yourself, or calling `browser.close()`, ends the session at once and frees the browser.
+
+A resumed connection answers with the same `X-Session-Id` and `X-Session-Resumed: true`. The session stays one session on the Sessions page and is billed once. A reconnect after the 60 seconds, or after the browser is gone, is refused with `410`; connect again without `sessionId` to start a new session.
+
+Puppeteer does not show response headers, so read the session id during the WebSocket handshake and give Puppeteer the open socket:
+
+```js
+import puppeteer from "puppeteer-core";
+import WebSocket from "ws";
+
+const ENDPOINT = "wss://cdp.browsergateway.io/v1/connect?token=bg_YOUR_ROUTER_KEY";
+
+function open(url) {
+  return new Promise((resolve, reject) => {
+    const ws = new WebSocket(url);
+    let sessionId = null;
+    ws.on("upgrade", (res) => { sessionId = res.headers["x-session-id"]; });
+    ws.on("open", () => resolve({ ws, sessionId }));
+    ws.on("unexpected-response", (_req, res) => reject(new Error(`HTTP ${res.statusCode}`)));
+    ws.on("error", reject);
+  });
+}
+
+async function connect(sessionId) {
+  const { ws, sessionId: id } = await open(sessionId ? `${ENDPOINT}&sessionId=${sessionId}` : ENDPOINT);
+  const transport = { send: (m) => ws.send(m), close: () => ws.close() };
+  ws.on("message", (data) => transport.onmessage?.(data.toString()));
+  ws.on("close", () => transport.onclose?.());
+  return { browser: await puppeteer.connect({ transport }), sessionId: id };
+}
+
+let finished = false;
+let { browser, sessionId } = await connect();
+
+function reconnectOnDrop(current) {
+  current.on("disconnected", async () => {
+    if (finished) return;
+    ({ browser, sessionId } = await connect(sessionId));
+    reconnectOnDrop(browser);
+  });
+}
+reconnectOnDrop(browser);
+
+// ... your automation, using `browser` ...
+
+finished = true;
+await browser.close();
+```
+
+After a reconnect, find your page again with `browser.pages()`; page objects from the previous connection belong to the old socket.
+
+Playwright's `connectOverCDP` does not expose the response headers either; use the same handshake with a CDP client that accepts an open socket, or reconnect with Puppeteer.
 
 ## Connect errors
 
@@ -68,6 +134,7 @@ A refused connection returns an HTTP status and a plain-text message before the 
 | 402 | The workspace is over its monthly session ceiling with an empty wallet, `session_record` or `observability` was requested with an empty wallet, a new `profile` slug would pass the 500-profile limit, or the workspace is suspended. |
 | 409 | The router's Profiles, Recording or Traces switch is off for a feature the session asked for, or another session is currently saving to the same profile (retry after the `Retry-After` seconds). |
 | 413 | The saved profile is larger than the per-profile size limit. |
+| 410 | A reconnect with `sessionId` came after the 60-second window, or the session's browser is gone. Connect without `sessionId` to start a new session. |
 | 429 | The queue timed out, every eligible provider is full, or too many failed attempts came from your IP. Honour `Retry-After` when it is present. |
 | 502 | Every eligible provider failed to open a browser. The message lists each attempt. |
 | 503 | The pinned provider is cooling down or full, no provider can take the session, the queue is full, or the router's settings changed while the session was starting. |
