@@ -121,6 +121,19 @@ await stagehand.init();
 }
 ```
 
+## Claude and Gemini computer use
+
+Claude's browser and computer use tools and Gemini computer use send actions such as "click here" and expect your code to run them on a browser. `browser-gateway/agent-tools/computer-use` runs them on any provider behind the gateway:
+
+```typescript
+import { AnthropicBrowserExecutor, runClaudeLoop } from "browser-gateway/agent-tools/computer-use";
+
+const executor = await AnthropicBrowserExecutor.connect({ endpoint: "ws://localhost:9500/v1/connect" });
+const result = await runClaudeLoop({ executor, task: "Find the top story on news.ycombinator.com.", createMessage });
+```
+
+`createMessage` is your own call to the Messages API. See [Computer Use](/computer-use) for Gemini and the full options.
+
 ## Any WebSocket Client
 
 The gateway is a standard WebSocket proxy. Any tool that connects to a WebSocket URL works:
