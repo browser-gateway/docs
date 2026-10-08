@@ -23,7 +23,7 @@ Using an MCP client such as Claude Code or Cursor instead? Use the [MCP server](
 npm install browser-gateway
 ```
 
-The library has no other dependencies and connects with the runtime's built-in WebSocket. It is tested on Node.js 22, Bun 1.3, Deno 2.9 and the Cloudflare Workers runtime.
+Computer use needs `browser-gateway` 0.4.27 or later. The library has no other dependencies and connects with the runtime's built-in WebSocket. It is tested on Node.js 22, Bun 1.3, Deno 2.9 and the Cloudflare Workers runtime.
 
 ## Claude in ten lines
 
@@ -49,6 +49,17 @@ await executor.close();
 `endpoint` is your gateway's connect address: `ws://localhost:9500/v1/connect?token=BG_TOKEN` for a self-hosted gateway, or your router key on the cloud. Add `&profile=work` to start logged in with a saved profile.
 
 `runClaudeLoop` sends the task, runs every action Claude returns, sends back the results and repeats until Claude answers. It keeps the last three screenshots in the conversation and replaces older ones with a short note, so long tasks do not grow without limit.
+
+The result tells you how the task ended:
+
+| Field | Meaning |
+|---|---|
+| `text` | The model's final answer. Empty when the loop stopped early. |
+| `turns` | Model calls made. |
+| `stoppedBy` | `done` (the model answered), `max-turns` (the turn limit was reached) or `declined` (a Gemini confirmation was refused). |
+| `transcript` | The full conversation, if you want to continue it or store it. |
+
+Both loops take `maxTurns` (default 30) and `keepImages` (screenshots kept in the conversation, default 3).
 
 For the computer use tool, use `AnthropicComputerExecutor` in the same way. On platforms that only accept the earlier tool, pass `legacy: true` and send the beta header `anthropic-beta: computer-use-2025-11-24` with your requests.
 
@@ -106,11 +117,31 @@ messages.push({ role: "user", content: await executor.run(response.content) });
 | `urls.blockPrivateNetworks` | `true` | Refuses localhost and private network addresses such as `10.x`, `192.168.x` and `169.254.x`. |
 | `screenshotFormat` | `png` | `jpeg` sends smaller images. |
 | `downloadPath` | denied | Allows downloads, saved to this folder on the browser's machine. |
+| `settleMs` | `500` | How long to wait after an action before reading the page. Actions that start a page load also wait for it to finish, up to 5 seconds. |
+| `session.policy.idleMs` | `300000` | Closes the session after this long without an action. Between 1 and 30 minutes. |
+| `session.dialogPolicy` | `dismiss` | How alerts and confirm dialogs are answered: `dismiss` or `accept`. |
 | `logs` (Claude browser tool) | off | Offers `read_console` and `read_network`. Query strings and token-like values are removed. |
 | `javascript` (Claude browser tool) | off | Offers `javascript_exec`. Page code runs with the page's cookies, so turn it on only for sessions with no logins. |
+| `attachScreenshot` (Claude browser tool) | off | Adds a screenshot to the last result of each turn. |
+| `confirm` (Gemini) | none | Asked before actions Gemini marks as needing approval. Without it those actions are declined. |
+| `keepTabs` (Gemini) | off | Keeps tabs a page opens as separate tabs instead of replacing the current page. |
+| `searchUrl` (Gemini) | `https://www.google.com` | Where Gemini's `search` action goes. |
 
 Only `http` and `https` addresses can be opened. File upload from your machine is not supported, because the browser usually runs on another machine.
 
 ## Sessions
 
-Each executor holds one browser session on your gateway. The session closes after 5 minutes with no action and always after 4 hours, as other agent sessions do. Call `close()` when the task is done. It closes the session's tabs and leaves the provider's browser running for other clients.
+Each executor holds one browser session on your gateway. The session closes after 5 minutes with no action (change it with `session.policy.idleMs`) and always after 4 hours, as other agent sessions do. Call `close()` when the task is done. It closes the session's tabs and leaves the provider's browser running for other clients.
+
+Time the model spends thinking counts as time without an action. If a model call can take longer than the idle limit, raise `session.policy.idleMs`.
+
+## When something goes wrong
+
+| What you see | What it means |
+|---|---|
+| A Claude tool result that starts with `Error:`, or a Gemini result with an `error` field | The action failed, for example a stale element or a refused address. The model sees the reason and usually tries another way. |
+| `Not executed: an earlier action in this turn failed.` | Claude only. A failed action stops the rest of that turn, as Anthropic requires. |
+| `stoppedBy: "max-turns"` | The task did not finish within `maxTurns`. Raise it, or make the task smaller. |
+| `stoppedBy: "declined"` | Gemini asked for approval and `confirm` returned `false`, or no `confirm` was given. |
+| "Request blocked due to safety violations" from Gemini | Seen on the Interactions API for some keys. Use `generateContent`, as in the example above. |
+| The session closed between turns | The idle limit passed while the model was thinking. Raise `session.policy.idleMs` and connect again. |
