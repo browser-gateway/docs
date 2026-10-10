@@ -319,10 +319,10 @@ The **Profiles** page in the dashboard at `http://localhost:9500/web/profiles/`:
 ## Troubleshooting
 
 **HTTP 409 `provider_holds_different_profile`.**
-The external provider still has residue from a previous profile's session. Pin one profile per slot with `profile: X` in `gateway.yml`, or route profile traffic to the self-hosted runtime. See [Provider Residue Detection](#provider-residue-detection).
+The provider handed back a browser that still holds a different profile. Retry later or on another provider, or set a provider to `profile: X` so this profile always gets its own browser. See [Provider Residue Detection](#provider-residue-detection).
 
-**HTTP 400 "No provider is configured to serve profile 'X'".**
-No provider slot is pinned to `X` and no runtime provider is configured. Add `profile: X` to an external slot, add a runtime provider, or add `&readOnly=1` to the connect URL.
+**HTTP 400 "No provider serves profile 'X'".**
+Every enabled provider is set to a different profile. Remove the profile setting from one provider, set one to `X`, or add a runtime provider.
 
 **"Profile not found" on a connect that worked moments ago.**
 The id is case-sensitive. `acme-prod` and `Acme-Prod` are different profiles.

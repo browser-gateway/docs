@@ -156,7 +156,7 @@ The same switches are available over the REST API on [`/v1/routers/:id/settings`
 
 `?profile=<slug>` loads a saved profile into the browser before your code gets it: cookies and localStorage for every saved origin. When the session ends, the new state is saved back as a new version of the profile.
 
-- **Saving needs the right provider.** A browserserve provider can save to any profile. Any other provider can save only to the profile it is pinned to (the provider's `profile` field). If no provider on the router can save to the requested profile, the connect returns 400. Add `readOnly=1` to load the profile without saving; read-only sessions can run on any provider.
+- **Any provider can save.** Every provider can load and save any profile, except a provider set to a different profile (the provider's `profile` field). If every provider on the router is set to a different profile, the connect returns 400. A browser that still holds a different profile is refused with 409. On a provider that reuses browsers, anything an earlier session left behind can be saved with the profile. Add `readOnly=1` to load the profile without saving.
 - **One writer at a time.** Only one session can save to a profile at once. A second saving session gets 409 until the first ends. Read-only sessions have no such limit.
 - **IndexedDB** is saved and restored only on browserserve providers.
 - sessionStorage is never saved.

@@ -396,7 +396,7 @@ Add a provider by its connection address:
 | `headers` | Optional. Sent on every connection to this provider, up to 20. |
 | `priority`, `weight` | 1 to 1000. Both default to 100. |
 | `maxConcurrent` | 1 to 1000. Omit for no limit on our side. A browserserve provider's advertised capacity is used when you omit it. |
-| `profile` | Optional profile slug. Pins the provider to that profile, which lets a non-browserserve provider save to it. Omit to leave unpinned; `null` is not accepted on create. |
+| `profile` | Optional profile slug. Sends only sessions using that profile to this provider. Omit to take every session; any provider can save any profile either way. `null` is not accepted on create. |
 
 The provider is tested and its capabilities recorded when it is added. Response `201` with the provider row.
 
