@@ -56,54 +56,45 @@ const browser = await puppeteer.connect({
 
 The pattern: build the profile once with a normal (write-back) session (log in), then fan out as many read-only sessions on it as you need. It works on any healthy CDP provider.
 
-## Provider Isolation
+## Providers And Profiles
 
-Profiles interact with providers in two very different ways. The gateway enforces the boundary because getting it wrong leaks one account's state into another account's session.
-
-| Provider category | Write-back on `?profile=X` | Multiple profiles on one provider |
-|---|---|---|
-| **Self-hosted runtime** ([browserserve](./browserserve)), each session isolated | Yes, any profile | Yes, concurrent (each session is a fresh isolated Chrome) |
-| **External CDP** (any cloud CDP endpoint, self-hosted Chrome shared across sessions) | Yes, but only for the pinned profile | No, must pin one profile per provider slot with `profile: "X"` |
-
-### Why the split
-
-The self-hosted runtime gives every connection its own fresh, isolated browser, so any profile is safe on it and it can serve many profiles concurrently.
-
-External providers persist state on whatever browser they hand back. Running two profiles on the same underlying browser slot means profile-A's `HttpOnly` cookies, on-disk storage, `localStorage`, and service workers survive into profile-B's session. Undetectable from the gateway's side, no eviction possible. So external providers are supported only when each slot is pinned to exactly one profile:
+Any provider can load and save any profile. A provider set to one profile takes only that profile's sessions. A provider with no profile setting takes every session, with or without a profile.
 
 **OSS gateway (`gateway.yml`):**
 
 ```yaml
 providers:
+  cloud:
+    url: wss://provider.example.com?token=${TOKEN}
+    # no profile setting: takes every session and saves any profile
+
   provider-team-acme:
     url: wss://provider.example.com?token=${TOKEN_A}
-    profile: team-acme        # this slot serves only ?profile=team-acme
-
-  provider-team-bravo:
-    url: wss://provider.example.com?token=${TOKEN_B}
-    profile: team-bravo
+    profile: team-acme        # only ?profile=team-acme sessions come here
 ```
 
-**Dashboard:** on the provider form (Providers page, New Provider or Edit), open the "Which profiles it serves" dropdown for each provider and pick the profile it serves. The options are:
+**Dashboard:** the provider form's "Which sessions it serves" has two choices, **Any session** or **Only `<profile>`**.
 
-- **Sessions with no profile**. The slot serves connections without `?profile=`.
-- **Any profile**. Allowed only on the self-hosted runtime (browserserve). Selecting this on an external provider is rejected on save.
-- **Only `<profile>`**. The slot serves only that specific profile. This is the equivalent of `profile: X` in `gateway.yml`.
+`multiProfile: true` is accepted and means the same as no profile setting.
 
-`multiProfile: true` on non-runtime providers is **rejected** when a provider is added or edited, and at startup. `POST /v1/providers` and `PUT /v1/providers/:id` return a 400. On boot, the gateway logs a config error and turns the flag off for that provider. Only the self-hosted runtime is trusted to serve multiple profiles concurrently.
+### What gets saved from a reused browser
 
-An unpinned external slot ("Sessions with no profile", or no `profile:` field) serves only stateless traffic (connections with no `?profile=`).
+At the end of a session the gateway saves the cookies and site storage it finds in the browser. Most cloud providers give every connection a fresh browser, so the profile holds exactly what your session did.
+
+Some providers, and a self-hosted Chrome kept running between sessions, reuse the same browser. There, anything an earlier session left behind is saved into your profile too, for example a login from a session that used no profile. The one thing the gateway refuses is a browser that still holds a **different profile** (see [Provider Residue Detection](#provider-residue-detection)).
+
+If a profile must contain only what its own sessions did, use a provider that starts a fresh browser for every connection, such as the self-hosted runtime ([browserserve](./browserserve)).
 
 ### Selection rules
 
-- `?profile=X` routes only to a slot pinned to `X`, or to the self-hosted runtime.
-- `?profile=X` with no eligible provider returns HTTP 400 with a hint that names the missing pin.
-- `?profile=X&readOnly=1` bypasses the eligibility gate and can route to any healthy CDP provider (see [Read-Only vs Write-Back](#read-only-vs-write-back)).
-- Connections with no `?profile=` route only to unpinned slots.
+- `?profile=X` routes to providers with no profile setting, providers set to `X`, and the self-hosted runtime.
+- `?profile=X` when every provider is set to a different profile returns HTTP 400.
+- Connections with no `?profile=` route to providers with no profile setting.
+- A provider that refuses a connection with HTTP 409 (it holds a different profile) is skipped for that connection only. It is not marked as failing.
 
 ## Provider Residue Detection
 
-Even a correctly pinned external provider can misbehave. Some providers advertise a "fresh browser per WS connect" model but reuse the underlying browser context or leak state through the Chromium session. The gateway now detects this before injecting the next session and fails closed.
+A reused browser can still hold the previous profile. The gateway checks for this before loading the next profile and refuses the connection instead of mixing two profiles.
 
 At profile-inject time, the gateway plants two independent sentinels on the upstream:
 
@@ -126,7 +117,7 @@ Read-only sessions get the same rejection. Even though nothing writes back, inje
 
 The [self-hosted runtime](./browserserve) is exempt from the check because every session gets a fresh isolated Chrome by construction, so no marker ever survives between sessions.
 
-**What to do when you see a 409**: pin one profile per external provider slot with `profile: X` (see [Provider Isolation](#provider-isolation) above), or route profile traffic to the self-hosted runtime.
+**What to do when you see a 409**: retry later or on another provider, or set a provider to that profile so the profile always gets its own browser (see [Providers And Profiles](#providers-and-profiles)).
 
 Marker cookies and marker `localStorage` are filtered out of every captured profile blob, so they never persist into a user profile.
 
@@ -186,34 +177,15 @@ Once enabled, any `?profile=<id>` connection auto-creates a profile on first dis
 
 ## Serving Multiple Profiles
 
-Two models, depending on the provider category. Both patterns follow the [provider isolation](#provider-isolation) matrix.
+One provider serves every profile. Set `profile:` on a provider only when you want a profile's sessions to land on that provider, for example one account per provider.
 
-### Self-hosted runtime, one provider serves every profile (recommended)
-
-[browserserve](./browserserve), the self-hosted runtime, gives every connection its own fresh, isolated browser. A single browserserve provider serves any number of profiles with no pinning and no crosstalk. Point the gateway at it and any `?profile=<id>` routes to it, it's auto-detected.
+[browserserve](./browserserve), the self-hosted runtime, gives every connection a fresh browser, so each profile holds only what its own sessions did, including `IndexedDB` and service workers. It is auto-detected.
 
 ```yaml
 providers:
   runtime:
-    url: ws://browserserve:9222/   # serves every profile, no pin needed
+    url: ws://browserserve:9222/   # serves every profile
 ```
-
-### External providers, one profile per pinned slot
-
-Pin each slot to one profile with `profile:`, and add one slot per profile.
-
-```yaml
-providers:
-  provider-team-acme:
-    url: wss://provider.example.com?token=${TOKEN_A}
-    profile: team-acme        # this slot serves only ?profile=team-acme
-
-  provider-team-bravo:
-    url: wss://provider.example.com?token=${TOKEN_B}
-    profile: team-bravo
-```
-
-**Startup validation:** with `profiles.enabled: true` and neither a runtime provider nor a pinned slot, the gateway logs a warning that no provider can serve a profile.
 
 ## One Writer At A Time
 
@@ -225,14 +197,14 @@ This keeps two writers from overwriting each other. It's enforced within a singl
 
 | Action | What happens |
 |---|---|
-| First connect with `?profile=acme` | Routes to a slot pinned to `acme` or to the runtime. Normal blank session. Disconnect captures a new blob. |
+| First connect with `?profile=acme` | Routes to any provider not set to a different profile. Normal blank session. Disconnect captures a new blob. |
 | Subsequent connect with `?profile=acme` | Gateway decrypts the blob and replays cookies + storage before you start. |
 | Connect with `?profile=acme&readOnly=1` | Loads the profile but never saves it back. No lock. Many read-only sessions can share it at once. |
 | Concurrent write-back connects with `?profile=acme` | The first uses it. A second waits up to 15s for it to finish. It proceeds if the first finishes in time, otherwise it gets HTTP 409. |
 | Concurrent connects with **different** profile ids | Run fully in parallel. No contention. |
-| Connect with `?profile=` matching no pinned slot | HTTP 400. `No provider is configured to serve profile 'X'. Pin a provider slot with 'profile: X'.` |
+| Connect with `?profile=X` when every provider is set to a different profile | HTTP 400. `No provider serves profile 'X': every enabled provider is set to a different profile.` |
 | Connect with `?profile=` and the provider holds a different profile's residue | HTTP 409 `provider_holds_different_profile` (see [Provider Residue Detection](#provider-residue-detection)). |
-| Connect with no `?profile=` | Routes only to unpinned slots. No persistence. |
+| Connect with no `?profile=` | Routes to providers with no profile setting. No persistence. |
 
 ## Security Model
 

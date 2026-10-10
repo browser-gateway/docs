@@ -266,9 +266,9 @@ dashboard does not wipe the others. To change a credential, send the new value.
 
 ## Profiles And Providers
 
-Whether a provider can safely carry a profile depends on how the underlying browser is isolated between sessions. The self-hosted runtime gives every session a fresh isolated Chrome and can serve any profile with no pinning. External CDP providers must pin one profile per slot with `profile:`. `multiProfile: true` on external providers is rejected at add-time.
+Any provider can load and save any profile. Setting `profile:` on a provider only decides which sessions it takes. A browser that still holds a different profile is refused, and on a provider that reuses browsers, anything an earlier session left behind can be saved with your profile.
 
-See [Profiles → Provider Isolation](/profiles#provider-isolation) for the full matrix and the automatic residue detection that catches misconfigured or misbehaving providers.
+See [Profiles → Providers And Profiles](/profiles#providers-and-profiles) for what gets saved and the residue check.
 
 ## Tips
 

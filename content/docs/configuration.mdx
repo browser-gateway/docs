@@ -56,8 +56,7 @@ providers:
       maxConcurrent: 10                # Max simultaneous connections (optional, no limit if omitted)
     priority: 1                        # Lower number = tried first (default: 1)
     weight: 1                          # For weighted strategy: higher = more traffic (default: 1)
-    profile: my-profile-slug           # Optional. Pin this slot to one profile (see Profiles)
-    multiProfile: false                # Only the self-hosted runtime may set this to true
+    profile: my-profile-slug           # Optional. Only sessions using this profile come here (see Profiles)
     enabled: true                      # Optional. false keeps the provider configured but never routes to it
 
 # Optional: get notified when things happen
@@ -191,33 +190,11 @@ providers:
     profile: team-acme
 ```
 
-Pins this slot to serve only `?profile=team-acme` connections (plus stateless traffic when no unpinned slot exists). Required for write-back profile use on external CDP providers. See [Profiles](/profiles#provider-isolation) for the full rationale.
+Sends only `?profile=team-acme` connections to this provider. Optional: a provider with no profile setting takes every session and can save any profile. See [Profiles](/profiles#providers-and-profiles).
 
 ### Multi-profile
 
-```yaml
-providers:
-  runtime:
-    url: ws://browserserve:9222/
-    multiProfile: true    # Only accepted on the self-hosted runtime
-```
-
-`multiProfile: true` tells the gateway this provider can serve multiple profiles concurrently on the same slot. This is only safe on the [self-hosted runtime](/browserserve), where every session gets a fresh isolated Chrome by construction.
-
-Setting `multiProfile: true` on any other provider is rejected two ways:
-
-- **When added or edited over the API**, the gateway probes the upstream first. If it answers but
-  is not the self-hosted runtime, `POST /v1/providers` and `PUT /v1/providers/:id` return HTTP 400 with
-  `"multiProfile:true is only valid on browserserve providers"`. If it does not answer
-  the probe at all, the request is still refused, with a separate error,
-  `"Cannot verify multiProfile:true, the upstream did not answer the probe"`, and the
-  probe failure in `details`. Either way nothing is written to `gateway.yml`.
-- **When already in `gateway.yml` at startup**, the gateway probes each provider, then
-  clears the flag to `false` on any that is not the self-hosted runtime and logs a
-  config error naming the provider. The gateway still starts, and that provider runs as
-  if the flag had never been set.
-
-Configs loaded from disk with the same flag on a non-runtime provider are logged as an error at boot and the flag is ignored at runtime.
+`multiProfile: true` is accepted for older configs and means the same as leaving `profile` unset: the provider takes every session and can save any profile.
 
 ## One-Shot REST Endpoints
 

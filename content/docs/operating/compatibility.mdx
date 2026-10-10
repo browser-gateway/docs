@@ -23,7 +23,7 @@ Which clients and provider categories are known to work end-to-end through the g
 | Self-hosted runtime ([browserserve](/browserserve)) | Full | The only category safe for multi-profile write-back on a single slot. Auto-detected, capacity is host-derived. |
 | Self-hosted Chrome (`--remote-debugging-port`) | Full | Point at `http://host:9222`, the gateway auto-discovers the CDP path. |
 | Self-hosted Playwright server | Full | Client and server Playwright versions must match exactly. |
-| Any WebSocket CDP endpoint | Full for stateless traffic and read-only profile use | For write-back profile use, pin one profile per slot with `profile:`. See [Profiles → Provider isolation](/profiles#provider-isolation). |
+| Any WebSocket CDP endpoint | Full, including saving profiles | On a provider that reuses browsers, leftovers from earlier sessions can be saved with a profile. See [Profiles → Providers And Profiles](/profiles#providers-and-profiles). |
 
 Any provider that speaks CDP over WebSocket should work. The gateway probes each provider on registration and surfaces detected capabilities in the dashboard under **Providers**.
 
