@@ -31,12 +31,15 @@ claude mcp add --transport http --scope user browser-gateway https://cdp.browser
 
 ### Codex
 
-```bash
-export BROWSER_GATEWAY_KEY=bg_YOUR_KEY
-codex mcp add browser-gateway --url https://cdp.browsergateway.io/mcp --bearer-token-env-var BROWSER_GATEWAY_KEY
+Add to `~/.codex/config.toml` (`%USERPROFILE%\.codex\config.toml` on Windows). The Codex CLI, IDE extension and desktop app all read it:
+
+```toml
+[mcp_servers.browser-gateway]
+url = "https://cdp.browsergateway.io/mcp"
+http_headers = { Authorization = "Bearer bg_YOUR_KEY" }
 ```
 
-Add the `export` line to your shell profile so new terminals keep the key.
+Or in the Codex app or IDE extension: **MCP servers**, **Add server**, choose **Streamable HTTP**, enter the url and add the `Authorization` header.
 
 ### Cursor
 
@@ -129,7 +132,6 @@ Give the agent this and it will configure itself:
 Set up browser-gateway for me by following https://browsergateway.com/agent-setup.txt
 MCP endpoint: https://cdp.browsergateway.io/mcp
 Router key: bg_YOUR_KEY
-Store the key in the BROWSER_GATEWAY_KEY environment variable, never in a committed file.
 ```
 
 `https://cdp.browsergateway.io/mcp/setup.md` returns the same instructions as plain text.
