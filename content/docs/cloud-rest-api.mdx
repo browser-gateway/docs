@@ -413,6 +413,19 @@ Or add a provider that creates a browser for each session through its own API, u
 
 The key is checked with the provider before the provider is saved, without starting a paid browser. `POST /v1/providers/verify-key` runs the same check on its own: `{ "adapterKind", "credentials", "options" }` returns `{ "verified": true, "provider": "Kernel" }`, `401` when the provider rejects the key, or `502` when the provider cannot be reached. The providers available this way are listed on the dashboard's **Providers** page.
 
+| `adapterKind` | Provider | `options` | When a session ends |
+|---|---|---|---|
+| `kernel` | Kernel | `region` (`us-east`, `eu-west`, `ap-southeast`), `stealth`, `timeoutSeconds` (10 to 259200) | The browser is kept for 15 minutes so a reconnect reuses it, then stopped. |
+| `browser-use` | Browser Use | `timeoutMinutes` (1 to 240, default 240), `proxyCountryCode` (two lowercase letters, for example `de`; off by default) | The browser is stopped through Browser Use's API, whether the client disconnects or calls `browser.close()`, so Browser Use refunds the unused part of its upfront charge. |
+
+```json
+{
+  "slug": "browser-use",
+  "adapterKind": "browser-use",
+  "credentials": { "apiKey": "YOUR_BROWSER_USE_KEY" }
+}
+```
+
 #### PATCH /v1/providers/:slug
 
 Any subset of `name`, `url`, `headers`, `priority`, `weight`, `maxConcurrent`, `profile` and `enabled`. `profile: null` unpins the provider. A new `url` is tested again. Providers added with a key have no address, so `url` and `headers` are refused on them.
