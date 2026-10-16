@@ -20,7 +20,11 @@ The chat link is a credential: anyone who has it can open browsers on your works
 
 ## Set up your agent
 
-The **Agents** page in the dashboard shows each of these with your key already filled in. The examples below use `bg_YOUR_KEY`.
+The **Agents** page in the dashboard shows each of these with your key already filled in. For coding agents it also gives you a prompt to paste in, and the agent adds Browser Gateway itself. The examples below use `bg_YOUR_KEY`.
+
+### Where your key is stored
+
+Each agent keeps the key in its own user-level settings file, in your home folder and outside every project, so it never ends up in git. The commands and files below all use that file. Do not put the key in a project file such as `.mcp.json` or `.vscode/mcp.json`, a `.env` file, a shell profile or an environment variable. A shell profile still leaves the key in plain text, exposes it to every program, and desktop apps that do not start from a shell never see it.
 
 ### Claude Code
 
@@ -58,7 +62,7 @@ Use **Install in Cursor** on the Agents page, or add to `~/.cursor/mcp.json`:
 
 ### VS Code
 
-Use **Install in VS Code** on the Agents page, or add to `.vscode/mcp.json`:
+Use **Install in VS Code** on the Agents page, or add to your user `mcp.json` (run **MCP: Open User Configuration**). Avoid `.vscode/mcp.json` inside a project, which can get committed with the key:
 
 ```json
 {
@@ -75,12 +79,14 @@ Use **Install in VS Code** on the Agents page, or add to `.vscode/mcp.json`:
 ### Gemini CLI
 
 ```bash
-gemini mcp add --transport http --header "Authorization: Bearer bg_YOUR_KEY" browser-gateway https://cdp.browsergateway.io/mcp
+gemini mcp add --transport http --scope user --header "Authorization: Bearer bg_YOUR_KEY" browser-gateway https://cdp.browsergateway.io/mcp
 ```
+
+Keep `--scope user`. Without it, Gemini CLI writes the server and key to `.gemini/settings.json` in the current project.
 
 ### Windsurf
 
-Add to `~/.codeium/windsurf/mcp_config.json`:
+Add to `~/.codeium/windsurf/mcp_config.json`, or `~/.config/devin/mcp_config.json` in Devin Desktop:
 
 ```json
 {
@@ -95,7 +101,7 @@ Add to `~/.codeium/windsurf/mcp_config.json`:
 
 ### OpenCode
 
-Add to `opencode.json`:
+Add to your global config, `~/.config/opencode/opencode.json`:
 
 ```json
 {
