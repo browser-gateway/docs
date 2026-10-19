@@ -50,7 +50,8 @@ A successful connection returns three response headers: `X-Session-Id` (the id s
 | `readOnly=1` | With `profile`, load the profile without saving changes back. |
 | `session_record=true` | Record the session as video. Needs wallet balance. See [Recordings](#recordings). |
 | `observability=true` | Capture a trace of network requests, console output and navigations. Needs wallet balance. See [Traces](#traces). |
-| `sessionId=<id>` | Reconnect to the browser of a session whose connection dropped. See [Reconnect after a dropped connection](#reconnect-after-a-dropped-connection). |
+| `sessionKey=<name>` | Name the session yourself (8 to 64 letters, digits, `-` or `_`). Connecting again with the same name after a dropped connection gives you the same browser. See [Reconnect after a dropped connection](#reconnect-after-a-dropped-connection). |
+| `sessionId=<id>` | Reconnect to the browser of a session whose connection dropped, by the id the router gave it. See [Reconnect after a dropped connection](#reconnect-after-a-dropped-connection). |
 
 ## Session limits
 
@@ -60,21 +61,51 @@ A successful connection returns three response headers: `X-Session-Id` (the id s
 
 ## Reconnect after a dropped connection
 
-A WebSocket that stays open for a long time can be cut by the network between your code and the router, for example when an edge server restarts. Long agent and scraping jobs see this about once per session-hour. When the connection drops, the router keeps the session's browser for 60 seconds. Connecting again with the session id gives you the same browser, with its open tabs, page, cookies and storage as they were.
+A WebSocket that stays open for a long time can be cut by the network between your code and the router, for example when an edge server restarts or sheds load. Long agent and scraping jobs typically see this about once per session-hour, and sometimes more often during network events. When the connection drops, the router keeps the session's browser for 60 seconds so your code can reconnect to it, with its open tabs, page, cookies and storage as they were.
+
+Write long-running code to expect a dropped connection and reconnect.
+
+### Name the session (simplest)
+
+Add `sessionKey` with a name of your choice (8 to 64 letters, digits, `-` or `_`), and connect again with the same address when the connection drops:
+
+```js
+import puppeteer from "puppeteer-core";
+
+const ENDPOINT = "wss://cdp.browsergateway.io/v1/connect?token=bg_YOUR_ROUTER_KEY&sessionKey=nightly-crawl-42";
+
+let finished = false;
+let browser = await puppeteer.connect({ browserWSEndpoint: ENDPOINT });
+
+function reconnectOnDrop(current) {
+  current.on("disconnected", async () => {
+    if (finished) return;
+    browser = await puppeteer.connect({ browserWSEndpoint: ENDPOINT });
+    reconnectOnDrop(browser);
+  });
+}
+reconnectOnDrop(browser);
+
+// ... your automation, using `browser` ...
+
+finished = true;
+await browser.close();
+```
+
+- While the browser is held, the same address gives you the same browser back.
+- After the 60 seconds, or when the browser is gone, the same address starts a new session under that name with a fresh browser. Check `browser.pages()` after reconnecting before assuming your page is still there.
+- Use a different name for each job. Two jobs sharing a name share one browser.
+- The response headers `X-Session-Key` and `X-Session-Resumed` (`true` or `false`) tell you which of the two happened.
+
+### Reconnect by session id
+
+Without `sessionKey`, reconnect with the id from the `X-Session-Id` response header:
 
 ```
 wss://cdp.browsergateway.io/v1/connect?token=bg_YOUR_ROUTER_KEY&sessionId=sess_...
 ```
 
-When it applies:
-
-- The session runs on a provider that can hand the browser back, and the first connection answered `X-Session-Resumable: true`. Today that is a browserserve provider with its resume window switched on.
-- The session has no `profile`, `session_record` or `observability` option, and does not run on [managed browsers](/cloud-managed-browsers).
-- The connection broke. Closing the connection yourself, or calling `browser.close()`, ends the session at once and frees the browser.
-
-A resumed connection answers with the same `X-Session-Id` and `X-Session-Resumed: true`. The session stays one session on the Sessions page and is billed once. A reconnect after the 60 seconds, or after the browser is gone, is refused with `410`; connect again without `sessionId` to start a new session.
-
-Puppeteer does not show response headers, so read the session id during the WebSocket handshake and give Puppeteer the open socket:
+A reconnect by id after the 60 seconds, or after the browser is gone, is refused with `410`; connect again without `sessionId` to start a new session. Puppeteer and Playwright do not show response headers, so read the id during the WebSocket handshake:
 
 ```js
 import puppeteer from "puppeteer-core";
@@ -100,28 +131,20 @@ async function connect(sessionId) {
   ws.on("close", () => transport.onclose?.());
   return { browser: await puppeteer.connect({ transport }), sessionId: id };
 }
-
-let finished = false;
-let { browser, sessionId } = await connect();
-
-function reconnectOnDrop(current) {
-  current.on("disconnected", async () => {
-    if (finished) return;
-    ({ browser, sessionId } = await connect(sessionId));
-    reconnectOnDrop(browser);
-  });
-}
-reconnectOnDrop(browser);
-
-// ... your automation, using `browser` ...
-
-finished = true;
-await browser.close();
 ```
 
-After a reconnect, find your page again with `browser.pages()`; page objects from the previous connection belong to the old socket.
+### When a session can be resumed
 
-Playwright's `connectOverCDP` does not expose the response headers either; use the same handshake with a CDP client that accepts an open socket, or reconnect with Puppeteer.
+The first connection answers `X-Session-Resumable: true` when a dropped connection can get the same browser back. That is the case when:
+
+- The provider can hand the browser back: a browserserve provider with its resume window switched on, or a hosted Browserless provider.
+- The session does not run on [managed browsers](/cloud-managed-browsers) or on a provider that starts its sessions through its own API.
+- With a `profile`, the provider is browserserve. Recording (`session_record`) and traces (`observability`) continue across a reconnect into the same recording and trace.
+- The connection broke. Closing the connection yourself, or calling `browser.close()`, ends the session at once and frees the browser.
+
+A resumed session stays one session on the Sessions page and is billed once. After a reconnect, find your page again with `browser.pages()`; page objects from the previous connection belong to the old socket.
+
+When the session cannot be resumed, reconnect without `sessionKey` or `sessionId` to start a new session; with a `profile`, the new session starts from the last saved state.
 
 ## Connect errors
 
