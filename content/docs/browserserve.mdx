@@ -66,6 +66,28 @@ localStorage is read from the browser's on-disk store after it exits, so every o
 
 If you run browserserve behind the gateway, the gateway manages profiles for you (encryption, locking, a dashboard, and a REST API). See [Profiles](./profiles) for that workflow. The channel above is the standalone interface, for using browserserve on its own.
 
+## Proxies
+
+A session can send all of its traffic through your own proxy. Pass the proxy in a request header when you connect, not in the URL, so the password stays out of access logs:
+
+```ts
+const browser = await puppeteer.connect({
+  browserWSEndpoint: "ws://localhost:9222",
+  headers: { "Browserserve-Proxy": "http://user:pass@proxy.example.com:8080" },
+});
+```
+
+`http://`, `https://` and `socks5://` (or `socks5h://`) proxies work, with or without a login. A browser cannot use a proxy login, an `https://` proxy or a SOCKS5 login on its own, so browserserve runs a small relay on the machine for the session that adds the login; the address and password never reach the browser's command line or the logs. An `https://` proxy's certificate is checked against the system's trusted authorities; set `SSL_CERT_FILE` to a bundle to trust a private one.
+
+The connection's response carries `Browserserve-Proxy-Applied: 1` when the proxy is in place. If you asked for a proxy and that header is missing (browserserve older than 0.1.23), close the session: it is not going through your proxy.
+
+- A session with a proxy starts its own browser instead of a ready one, and counts toward `pool.maxSessions`.
+- Loopback addresses go through the proxy too, and WebRTC cannot send traffic outside it.
+- Proxies on private or local networks are refused, so a client cannot reach the server's own network through one. Set `proxy.allowPrivateUpstream: true` if your proxy lives on your network.
+- The browser's own background requests (time and update checks) also go through the proxy.
+
+Available from 0.1.23.
+
 ## Isolation and resource control
 
 browserserve detects what the host allows and reports it honestly. It resolves three independent tiers, and `browserserve doctor` and `GET /pressure` print all three:
@@ -144,6 +166,8 @@ Configuration is a YAML file (`browserserve.yml` in the working directory, or `B
 | `chrome.noSandbox` | `false` | Start without the Chromium sandbox. |
 | `chrome.requireSandbox` | `false` | Refuse to fall back to `--no-sandbox` if the host blocks the sandbox; sessions fail to start instead. For untrusted content. |
 | `chrome.extraFlags` | `[]` | Extra Chromium flags, appended after the built-in set. |
+| `proxy.enabled` | `true` | Accept per-session proxies (see [Proxies](#proxies)). |
+| `proxy.allowPrivateUpstream` | `false` | Allow a session proxy on a private or local network. |
 | `externalAddress` | Host header | Public address advertised in `webSocketDebuggerUrl`; set this behind a proxy or load balancer. |
 | `dataDir` | `.browserserve` | Where per-session state lives. |
 
@@ -173,6 +197,8 @@ Every tuning knob has an environment-variable equivalent, so container and serve
 | `BROWSERSERVE_SINGLE_USE` | `session.singleUse` | One session per process, then exit. Boolean. |
 | `BROWSERSERVE_NO_SANDBOX` | `chrome.noSandbox` | Opt out of the Chromium sandbox. Boolean. |
 | `BROWSERSERVE_REQUIRE_SANDBOX` | `chrome.requireSandbox` | Refuse to fall back if the host blocks the sandbox. |
+| `BROWSERSERVE_PROXY` | `proxy.enabled` | Accept per-session proxies. Boolean. |
+| `BROWSERSERVE_PROXY_ALLOW_PRIVATE` | `proxy.allowPrivateUpstream` | Allow proxies on a private or local network. Boolean. |
 | `BROWSERSERVE_BLOCK_METADATA` | none (Docker image only) | `1` blocks the container from reaching cloud instance metadata addresses. Needs `NET_ADMIN`. See [Securing browserserve on cloud machines](./browserserve-cloud-security). Available from 0.1.13. |
 | `BROWSERSERVE_DNS` | none (Docker image only) | Resolvers used when the metadata block replaces a metadata-address resolver. Default `1.1.1.1 8.8.8.8`. Available from 0.1.13. |
 
