@@ -1,0 +1,75 @@
+---
+title: "Proxies"
+description: "Send a session's traffic through a proxy you choose, on the browsers you run, from connections, the playground and the REST API."
+---
+
+A proxy sends a browser's traffic out through another address, so sites see the proxy's location instead of your server's. Save a proxy once under a name, then ask for it by name on any connection.
+
+## When To Use Them
+
+- A site shows different content per country, and you need one country's view.
+- Your server's address is blocked or rate limited, and a residential or office address is not.
+- Several accounts must each keep their own address.
+
+## Save A Proxy
+
+Add proxies under `proxies:` in `gateway.yml`, or on the **Proxies** page of the dashboard. Each proxy has a name and an address with a port:
+
+```yaml
+proxies:
+  office:
+    url: http://203.0.113.10:3128
+    bypass: ["*.internal"]
+```
+
+`bypass` lists hosts the browser reaches directly instead of through the proxy. The name `none` is reserved.
+
+The dashboard's **Test** button shows the address the proxy exits from, with its country, city, network and time zone. **Check in a browser** opens an IP page through the proxy.
+
+### Which proxies the gateway can apply
+
+The gateway applies `http://` and `socks5://` proxies **without a login**. A browser cannot use a proxy that needs a username and password, or an `https://` proxy address, on its own, so the gateway refuses those when you add or edit them. A proxy already in `gateway.yml` that the gateway cannot apply is listed as unusable, with the reason.
+
+If your proxy provider offers it, allow your server's address on the proxy instead of a password.
+
+## Use A Proxy
+
+Proxies apply to browsers you run. Mark each such provider with `injectProxy: true` (the **Apply proxies** switch on the provider in the dashboard):
+
+```yaml
+providers:
+  my-chrome:
+    url: ws://chrome.internal:9222/devtools/browser
+    injectProxy: true
+```
+
+Then add `?proxy=<name>` to the connection URL:
+
+```ts
+const browser = await puppeteer.connect({
+  browserWSEndpoint: "ws://localhost:9500/v1/connect?proxy=office&token=YOUR_BG_TOKEN",
+});
+```
+
+The gateway opens the session's pages in a browser context that goes through the proxy. A session that asks for a proxy never runs without it: if no provider can apply it, the connection is refused with a message saying why.
+
+Saved logins work behind a proxy. With `?profile=` and `?proxy=` on the same connection, the profile loads and saves inside the proxied context.
+
+### Playground and REST API
+
+- **Playground:** pick a proxy before starting the session, or pass `?proxy=` on `/v1/live`.
+- **REST API:** `POST /v1/screenshot`, `/v1/content` and `/v1/scrape` take a `proxy` field with a proxy name. The request runs on its own session through that proxy.
+
+## Session Defaults
+
+`sessionDefaults` in `gateway.yml` (the **Settings** page in the dashboard) fills in settings for every connection that leaves them out:
+
+```yaml
+sessionDefaults:
+  proxy: office        # use this proxy unless the URL says otherwise
+  profile: null        # a profile name to load by default
+  saveProfile: false   # a default profile opens read-only unless this is true
+  record: false        # record every session
+```
+
+A connection overrides a default by setting it: `?proxy=other`, or `?proxy=none` and `?profile=none` to turn the default off for that connection. REST API requests use the default proxy unless their `proxy` field says `none`; they never pick up the default profile or recording.

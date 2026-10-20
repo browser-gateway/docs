@@ -6,6 +6,7 @@
     "---Config & Providers---",
     "configuration",
     "providers",
+    "proxies",
     "---Self-Hosted Runtime---",
     "browserserve",
     "browserserve-cloud-security",
