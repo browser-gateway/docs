@@ -8,7 +8,7 @@ description: "Every HTTP endpoint the gateway exposes, grouped by resource, auto
 The gateway exposes three categories of HTTP endpoints:
 
 - **Action endpoints** (`/v1/screenshot`, `/v1/content`, `/v1/scrape`): one-shot browser actions, no client code needed.
-- **Control endpoints** (`/v1/providers`, `/v1/config`, `/v1/profiles`, `/v1/replays`, `/v1/sessions`, `/v1/status`): manage the gateway itself.
+- **Control endpoints** (`/v1/providers`, `/v1/proxies`, `/v1/config`, `/v1/profiles`, `/v1/replays`, `/v1/sessions`, `/v1/status`): manage the gateway itself.
 - **Compat + dashboard** (`/health`, `/json/version`, `/web/*`): Chrome-compat endpoints and the dashboard.
 - **MCP** (`/mcp`, `/mcp/setup.md`): the MCP server for AI agents over HTTP. See [MCP](/mcp).
 
@@ -23,6 +23,9 @@ Requests that change something (`POST`, `PUT`, `PATCH`, `DELETE`) must send `Con
 | `GET` | [`/v1/auth/info`](/rest-api/auth) | Auth Info |
 | `GET` | [`/v1/config`](/rest-api/config) | Config |
 | `PUT` | [`/v1/config`](/rest-api/config) | Config |
+| `PUT` | [`/v1/config/advanced`](/rest-api/config) | Config |
+| `PUT` | [`/v1/config/session-defaults`](/rest-api/config) | Config |
+| `GET` | [`/v1/config/settings`](/rest-api/config) | Config |
 | `PUT` | [`/v1/config/strategy`](/rest-api/config) | Config |
 | `POST` | [`/v1/config/validate`](/rest-api/config) | Config |
 | `POST` | [`/v1/content`](/rest-api/content) | Content |
@@ -48,6 +51,11 @@ Requests that change something (`POST`, `PUT`, `PATCH`, `DELETE`) must send `Con
 | `POST` | [`/v1/providers/:id/capabilities/revalidate`](/rest-api/providers) | Providers |
 | `POST` | [`/v1/providers/:id/test`](/rest-api/providers) | Providers |
 | `POST` | [`/v1/providers/probe`](/rest-api/providers) | Providers |
+| `GET` | [`/v1/proxies`](/rest-api/proxies) | Proxies |
+| `POST` | [`/v1/proxies`](/rest-api/proxies) | Proxies |
+| `DELETE` | [`/v1/proxies/:name`](/rest-api/proxies) | Proxies |
+| `PUT` | [`/v1/proxies/:name`](/rest-api/proxies) | Proxies |
+| `POST` | [`/v1/proxies/:name/test`](/rest-api/proxies) | Proxies |
 | `GET` | [`/v1/replays`](/rest-api/replays) | Replays |
 | `DELETE` | [`/v1/replays/:id`](/rest-api/replays) | Replays |
 | `GET` | [`/v1/replays/:id`](/rest-api/replays) | Replays |
@@ -79,6 +87,7 @@ Requests that change something (`POST`, `PUT`, `PATCH`, `DELETE`) must send `Con
 - [**Chrome Compat**](/rest-api/json-version): Chrome-compatible /json/version endpoint.
 - [**Profiles**](/rest-api/profiles): Create, export, import, delete stored browser profiles.
 - [**Providers**](/rest-api/providers): CRUD for provider entries in gateway.yml.
+- [**Proxies**](/rest-api/proxies): Proxies sessions can be sent through.
 - [**Replays**](/rest-api/replays): List, fetch, delete session replay frames.
 - [**Scrape**](/rest-api/scrape): Structured data extraction from a page.
 - [**Screenshot**](/rest-api/screenshot): One-shot screenshot of any URL, no client code required.

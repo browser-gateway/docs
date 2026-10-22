@@ -14,6 +14,9 @@ Read the running configuration, validate a proposed YAML, or replace the whole c
 |---|---|---|
 | `GET` | `/v1/config` |  |
 | `PUT` | `/v1/config` |  |
+| `PUT` | `/v1/config/advanced` | Updates connection timeout, idle timeout, queue, health-check and cooldown settings within their allowed ranges. |
+| `PUT` | `/v1/config/session-defaults` | Sets the defaults new sessions use (record, profile, save changes, proxy). A connection parameter overrides each one, including `none`. |
+| `GET` | `/v1/config/settings` | Session defaults, routing strategy and advanced settings, with the settings that apply only after a restart. |
 | `PUT` | `/v1/config/strategy` |  |
 | `POST` | `/v1/config/validate` |  |
 

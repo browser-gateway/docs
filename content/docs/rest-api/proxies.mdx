@@ -1,0 +1,23 @@
+---
+title: "Proxies"
+description: "Proxies sessions can be sent through."
+---
+
+{/* AUTO-GENERATED. Do not edit. Regenerate with `npm run docs:gen-rest` in the code repo. */}
+{/* Edit descriptions in scripts/gen-rest-docs.ts (RESOURCE_HELP + JSDoc above each route). */}
+
+Add, update, delete and test the proxies a session can use with `?proxy=<name>` or as the default proxy. Only providers with Apply proxies on can use them. Passwords are write-only.
+
+## Endpoints
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/v1/proxies` | Lists configured proxies. Passwords are never returned. |
+| `POST` | `/v1/proxies` | Adds a proxy (http or socks5, no login). The name `none` is reserved. |
+| `DELETE` | `/v1/proxies/:name` | Deletes a proxy. Refused while it is the default proxy. |
+| `PUT` | `/v1/proxies/:name` | Updates a proxy. A password is kept unless a new one is sent or credentials are cleared. |
+| `POST` | `/v1/proxies/:name/test` | Connects through the proxy from the gateway's machine and reports the exit IP address and country. |
+
+## Source
+
+- [`src/server/app.ts`](https://github.com/browser-gateway/browser-gateway/blob/main/src/server/app.ts)

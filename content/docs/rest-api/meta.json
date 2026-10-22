@@ -9,6 +9,7 @@
     "json-version",
     "profiles",
     "providers",
+    "proxies",
     "replays",
     "scrape",
     "screenshot",
