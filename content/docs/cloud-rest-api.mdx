@@ -5,18 +5,18 @@ description: "Programmatic access to your browsergateway.com workspace over HTTP
 
 ## What it is
 
-The Cloud REST API is the same control plane the dashboard at `app.browsergateway.com` talks to. Most of what you do in the dashboard (list sessions, manage providers and routers, create profiles, read recordings and traces, configure webhooks, read billing) can be scripted through this API.
+The Cloud REST API is the same control plane the dashboard at `app.browsergateway.com` talks to. Most of what you do in the dashboard (list sessions, manage providers and projects, create profiles, read recordings and traces, configure webhooks, read billing) can be scripted through this API.
 
 This is distinct from the other surfaces on the platform:
 
 | Surface | Base URL | Auth | Purpose |
 |---|---|---|---|
-| **Cloud REST API** (this page) | `https://app-api.browsergateway.com/v1` | `Authorization: Bearer bga_...` | Control plane: workspaces, routers, providers, profiles, sessions, billing |
-| [**Cloud CDP endpoint**](/cloud-cdp) | `wss://cdp.browsergateway.io/v1/connect?token=bg_...` | Router key | Open a browser session over CDP (Puppeteer, Playwright) |
-| [**Cloud Data API**](/cloud-data-api) | `https://cdp.browsergateway.io/v1/*` | Router key | One-shot screenshot, content and scrape |
+| **Cloud REST API** (this page) | `https://app-api.browsergateway.com/v1` | `Authorization: Bearer bga_...` | Control plane: workspaces, projects, providers, profiles, sessions, billing |
+| [**Cloud CDP endpoint**](/cloud-cdp) | `wss://cdp.browsergateway.io/v1/connect?token=bg_...` | Project key | Open a browser session over CDP (Puppeteer, Playwright) |
+| [**Cloud Data API**](/cloud-data-api) | `https://cdp.browsergateway.io/v1/*` | Project key | One-shot screenshot, content and scrape |
 | [**Self-hosted gateway REST**](/rest-api) | `http://your-host:9500/v1/*` | `BG_TOKEN` | The gateway you run yourself |
 
-Account tokens (`bga_...`, this page) and router keys (`bg_...`, for CDP, the Data API and MCP) are separate credentials.
+Account tokens (`bga_...`, this page) and project keys (`bg_...`, for CDP, the Data API and MCP) are separate credentials.
 
 ## Get a token
 
@@ -39,14 +39,14 @@ A few endpoints refuse bearer tokens and need a signed-in dashboard session. See
 
 Endpoints that change configuration, return a credential, or return decrypted profile data need the **owner** or **admin** role in the workspace. A **member** gets `403 forbidden` on those.
 
-### Choosing the workspace and router
+### Choosing the workspace and project
 
 | Header | Effect |
 |---|---|
 | `X-Workspace-Id: <id>` | The workspace this request acts on. If you are not a member, the request fails with `403 not_a_member`. |
-| `X-Router-Id: <id>` | The router this request acts on, for endpoints scoped to one router (providers, router keys, inspections). |
+| `X-Router-Id: <id>` | The project this request acts on, for endpoints scoped to one project (providers, project keys, inspections). |
 
-Send both headers on every bearer call if you belong to more than one workspace or your workspace has more than one router. Without them, a bearer call uses one of your workspaces and its first router, which is not necessarily the one selected in the dashboard. Some endpoints also accept `?routerInstanceId=<id>` to target a router.
+Send both headers on every bearer call if you belong to more than one workspace or your workspace has more than one project. Without them, a bearer call uses one of your workspaces and its first project, which is not necessarily the one selected in the dashboard. Some endpoints also accept `?routerInstanceId=<id>` to target a project.
 
 ## Common response shape
 
@@ -76,13 +76,13 @@ The billing endpoints are the exception: their errors carry a plain string, for 
 |---|---|---|
 | `validation_error` | 400 | Request body or parameters failed validation. Some endpoints use `bad_request`, `invalid_input`, `invalid_url` or `invalid_id`. |
 | `unauthenticated` | 401 | Missing or invalid bearer |
-| `fair_use_limit_reached` | 402 | A fair-use ceiling was hit: 100 routers, 500 profiles or 100 router keys per workspace, or 1,000 members |
+| `fair_use_limit_reached` | 402 | A fair-use ceiling was hit: 100 projects, 500 profiles or 100 project keys per workspace, or 1,000 members |
 | `cookie_required` | 403 | Endpoint refuses bearers (see [below](#cookie-only-endpoints)) |
 | `forbidden` | 403 | Your role in the workspace does not allow this action |
 | `not_a_member` | 403 | `X-Workspace-Id` names a workspace you do not belong to |
 | `not_found` | 404 | Resource missing or in another workspace |
-| `conflict` | 409 | A router, provider or profile with that slug already exists |
-| `last_router` | 409 | A workspace must keep at least one router |
+| `conflict` | 409 | A project, provider or profile with that slug already exists |
+| `last_router` | 409 | A workspace must keep at least one project |
 | `limit_reached` | 409 | You already have 10 active access tokens |
 | `payload_too_large` | 413 | A profile is larger than 10 MB |
 | `profile_storage_cap_exceeded` | 413 | Saving the profile would pass the workspace's 500 MB profile storage |
@@ -91,7 +91,7 @@ The billing endpoints are the exception: their errors carry a plain string, for 
 
 ## Rate limits
 
-Bearer calls to the providers, routers, profiles, sessions, replays, inspections and webhooks endpoints count against a per-workspace daily cap. Other endpoints do not count.
+Bearer calls to the providers, projects, profiles, sessions, replays, inspections and webhooks endpoints count against a per-workspace daily cap. Other endpoints do not count.
 
 | Account state | Daily cap |
 |---|---|
@@ -119,7 +119,7 @@ Grouped by resource. Every path is under `https://app-api.browsergateway.com`.
 
 #### GET /v1/me
 
-The authenticated user, their workspaces, and the workspace and router this request resolved to.
+The authenticated user, their workspaces, and the workspace and project this request resolved to.
 
 ```json
 {
@@ -207,9 +207,9 @@ Owners and admins invite people by email. The invitation link is valid for 7 day
 
 Accept and decline only work when you are signed in with the invited email address.
 
-### Routers
+### Projects
 
-A router is one routing endpoint with its own providers, router keys, strategy and settings. A workspace can hold up to 100 routers.
+A project is one routing endpoint with its own providers, project keys, strategy and settings. A workspace can hold up to 100 projects. The API names projects by their older name, router: the endpoints are under `/v1/routers`, the header is `X-Router-Id` and request fields use `routerInstanceId`.
 
 #### GET /v1/routers
 
@@ -244,7 +244,7 @@ A router is one routing endpoint with its own providers, router keys, strategy a
 }
 ```
 
-`GET /v1/routers/:id` returns one router in the same shape.
+`GET /v1/routers/:id` returns one project in the same shape.
 
 #### POST /v1/routers
 
@@ -252,7 +252,7 @@ A router is one routing endpoint with its own providers, router keys, strategy a
 { "name": "CI runner", "slug": "ci-runner", "description": "Nightly jobs" }
 ```
 
-`slug` is optional (derived from `name`) and must be 2 to 40 lowercase letters, digits or hyphens. A new router gets its first router key. Response `201` with the router row.
+`slug` is optional (derived from `name`) and must be 2 to 40 lowercase letters, digits or hyphens. A new project gets its first project key. Response `201` with the project row.
 
 #### PATCH /v1/routers/:id
 
@@ -271,15 +271,15 @@ Any subset of:
 | `cooldownFailureThreshold` | 0 to 1 | 0.5 |
 | `cooldownMinRequestVolume` | 0 to 1,000,000 | 3 |
 
-Response: the full router row.
+Response: the full project row.
 
 #### DELETE /v1/routers/:id
 
-Deletes the router, its providers and its router keys. Response `{ "ok": true, "data": { "id": "ri_ci", "slug": "ci-runner" } }`. Deleting a workspace's only router returns `409 last_router`.
+Deletes the project, its providers and its project keys. Response `{ "ok": true, "data": { "id": "ri_ci", "slug": "ci-runner" } }`. Deleting a workspace's only project returns `409 last_router`.
 
 #### GET /v1/routers/:id/settings
 
-The router's feature switches. All are `true` on a new router.
+The project's feature switches. All are `true` on a new project.
 
 ```json
 {
@@ -294,7 +294,7 @@ The router's feature switches. All are `true` on a new router.
 }
 ```
 
-`PATCH /v1/routers/:id/settings` takes any subset of the four booleans. `replayEnabled` is the Recording switch and `observabilityEnabled` is the Traces switch. See [Router switches](/cloud-cdp#router-switches) for what each one blocks.
+`PATCH /v1/routers/:id/settings` takes any subset of the four booleans. `replayEnabled` is the Recording switch and `observabilityEnabled` is the Traces switch. See [Project switches](/cloud-cdp#project-switches) for what each one blocks.
 
 #### GET /v1/routers/:id/agent-settings
 
@@ -317,11 +317,11 @@ Defaults for browsers that agents open through [Cloud MCP](/cloud-mcp) without a
 
 #### POST /v1/routers/active
 
-Set the router the dashboard opens: `{ "routerInstanceId": "ri_ci" }`. Bearer calls use `X-Router-Id` instead.
+Set the project the dashboard opens: `{ "routerInstanceId": "ri_ci" }`. Bearer calls use `X-Router-Id` instead.
 
 ### Providers
 
-Providers are the browser upstreams a router routes to. These endpoints act on the router from `X-Router-Id`, or on `?routerInstanceId=<id>` when given.
+Providers are the browser upstreams a project routes to. These endpoints act on the project from `X-Router-Id`, or on `?routerInstanceId=<id>` when given.
 
 #### GET /v1/providers
 
@@ -391,7 +391,7 @@ Add a provider by its connection address:
 
 | Field | Rules |
 |---|---|
-| `slug` | Required. Letters, digits and single hyphens, up to 64 characters, unique on the router. |
+| `slug` | Required. Letters, digits and single hyphens, up to 64 characters, unique in the project. |
 | `url` | A `ws://` or `wss://` address. |
 | `headers` | Optional. Sent on every connection to this provider, up to 20. |
 | `priority`, `weight` | 1 to 1000. Both default to 100. |
@@ -430,7 +430,7 @@ The key is checked with the provider before the provider is saved, without start
 
 Any subset of `name`, `url`, `headers`, `priority`, `weight`, `maxConcurrent`, `profile` and `enabled`. `profile: null` unpins the provider. A new `url` is tested again. Providers added with a key have no address, so `url` and `headers` are refused on them.
 
-`enabled: false` switches a provider off without deleting it: the router behaves as if it were not there, and sessions already running on it continue. `enabled: true` switches it back on.
+`enabled: false` switches a provider off without deleting it: the project behaves as if it were not there, and sessions already running on it continue. `enabled: true` switches it back on.
 
 Response: the provider row.
 
@@ -456,9 +456,9 @@ Runs the capability check again and stores the result. Response: the provider ro
 
 Check an address before adding it. Both take `{ "url": "wss://...", "headers": { } }`. `test-url` returns the same shape as `/test`. `probe` returns `{ "detectedKind": "browserserve" | "generic" | null, "advertisedMaxConcurrent": 16 | null }`.
 
-### Router keys
+### Project keys
 
-Router keys (`bg_...`) are the credential for the [CDP endpoint](/cloud-cdp), the Data API and MCP. Each key belongs to one router. These endpoints act on the router from `X-Router-Id`, or on `routerInstanceId` in the query or body.
+Project keys (`bg_...`) are the credential for the [CDP endpoint](/cloud-cdp), the Data API and MCP. Each key belongs to one project. These endpoints act on the project from `X-Router-Id`, or on `routerInstanceId` in the query or body.
 
 #### GET /v1/api-keys
 
@@ -486,7 +486,7 @@ Revoked keys stay in the list with `revokedAt` set. `GET /v1/api-keys/:id` retur
 
 #### POST /v1/api-keys
 
-Add another key to a router: `{ "label": "staging", "routerInstanceId": "ri_main" }`. A router can hold several live keys. Owner or admin. Response `201`:
+Add another key to a project: `{ "label": "staging", "routerInstanceId": "ri_main" }`. A project can hold several live keys. Owner or admin. Response `201`:
 
 ```json
 {
@@ -508,7 +508,7 @@ Store `plaintextKey` immediately.
 
 #### POST /v1/api-keys/rotate
 
-Revokes every live key on the router and issues one new key, in the same response shape as create. The old keys stop working immediately, so update every place that uses them right after rotating. Optional body: `{ "routerInstanceId": "...", "label": "..." }`.
+Revokes every live key in the project and issues one new key, in the same response shape as create. The old keys stop working immediately, so update every place that uses them right after rotating. Optional body: `{ "routerInstanceId": "...", "label": "..." }`.
 
 #### DELETE /v1/api-keys/:id
 
@@ -516,11 +516,11 @@ Revokes one key immediately.
 
 #### GET /v1/api-keys/current/plaintext
 
-The router's newest live key in plaintext: `{ "apiKeyId": "ak_abc", "plaintextKey": "bg_..." }`. Owner or admin. This is what the dashboard uses to fill in your key.
+The project's newest live key in plaintext: `{ "apiKeyId": "ak_abc", "plaintextKey": "bg_..." }`. Owner or admin. This is what the dashboard uses to fill in your key.
 
 ### Chat links
 
-The chat link is the credential chat apps use to reach [Cloud MCP](/cloud-mcp). One per router. `?routerInstanceId=<id>` selects the router.
+The chat link is the credential chat apps use to reach [Cloud MCP](/cloud-mcp). One per project. `?routerInstanceId=<id>` selects the project.
 
 | Endpoint | What it does |
 |---|---|
@@ -626,10 +626,10 @@ Sessions across the whole workspace, newest first.
 | `page` | 1 | |
 | `pageSize` | 25 | Up to 100 |
 | `state` | all | `active`, `closed` or `errored` |
-| `provider` | all | Provider slug on the request's router |
+| `provider` | all | Provider slug on the request's project |
 | `since` | 30 days ago | Unix milliseconds. Up to 180 days back. |
 | `kind` | all | `route` for CDP connections, `agent` for [Cloud MCP](/cloud-mcp) browsers |
-| `routerInstanceId` | all routers | Limit to one router |
+| `routerInstanceId` | all projects | Limit to one project |
 
 ```json
 {
@@ -732,7 +732,7 @@ Deletes the recording and its video. Owner or admin.
 
 ### Traces
 
-Traces of sessions opened with `observability=true`. See [Traces](/cloud-cdp#traces). These endpoints only show traces from the request's router.
+Traces of sessions opened with `observability=true`. See [Traces](/cloud-cdp#traces). These endpoints only show traces from the request's project.
 
 #### GET /v1/inspections
 
@@ -780,7 +780,7 @@ Deletes the trace. Owner or admin.
 
 ### Webhooks
 
-Webhooks belong to the workspace. Each one can be limited to one router with `routerInstanceId`; leave it `null` to receive events from every router.
+Webhooks belong to the workspace. Each one can be limited to one project with `routerInstanceId`; leave it `null` to receive events from every project.
 
 #### GET /v1/webhooks
 
@@ -833,7 +833,7 @@ Webhooks belong to the workspace. Each one can be limited to one router with `ro
 | `session.ended` | A CDP or agent session closes normally |
 | `session.error` | A CDP or agent session closes with an error |
 
-The API also accepts `session.started`, `provider.up`, `provider.down`, `provider.cooldown`, `credit.low`, `credit.exhausted` and `workspace.suspended` in `events`, but none of these is sent today. Data API calls and playground sessions do not send webhooks. Nothing is sent for a router whose Webhooks switch is off.
+The API also accepts `session.started`, `provider.up`, `provider.down`, `provider.cooldown`, `credit.low`, `credit.exhausted` and `workspace.suspended` in `events`, but none of these is sent today. Data API calls and playground sessions do not send webhooks. Nothing is sent for a project whose Webhooks switch is off.
 
 Each delivery is a `POST` with this body:
 
@@ -1076,7 +1076,7 @@ Rotating an account token gives it a new value. The token keeps its label and cr
 
 Revoking switches a token off but keeps it in the list. Deleting removes it from the list, whether it is active or revoked.
 
-Router key rotation (`POST /v1/api-keys/rotate`) also takes effect immediately: every live key on the router stops working.
+Project key rotation (`POST /v1/api-keys/rotate`) also takes effect immediately: every live key in the project stops working.
 
 ## End-to-end example
 
@@ -1100,6 +1100,6 @@ curl -s "$BASE/profiles" -H "Authorization: Bearer $TOKEN" -H "X-Workspace-Id: $
 
 ## What's not on this API
 
-- **Opening a browser session.** Use the [Cloud CDP endpoint](/cloud-cdp) with a **router key**, not a bearer.
+- **Opening a browser session.** Use the [Cloud CDP endpoint](/cloud-cdp) with a **project key**, not a bearer.
 - **One-shot browser actions** (screenshot, content, scrape). Those live on the [Cloud Data API](/cloud-data-api), and each successful call counts as one session against the 10,000 per month ceiling.
 - **Self-hosted gateway management.** That is `http://your-host:9500/v1/*` with `BG_TOKEN`. See [Gateway REST API](/rest-api).

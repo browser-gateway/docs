@@ -46,7 +46,7 @@ console.log(result.text);
 await executor.close();
 ```
 
-`endpoint` is your gateway's connect address: `ws://localhost:9500/v1/connect?token=BG_TOKEN` for a self-hosted gateway, or your router key on the cloud. Add `&profile=work` to start logged in with a saved profile.
+`endpoint` is your gateway's connect address: `ws://localhost:9500/v1/connect?token=BG_TOKEN` for a self-hosted gateway, or your project key on the cloud. Add `&profile=work` to start logged in with a saved profile.
 
 `runClaudeLoop` sends the task, runs every action Claude returns, sends back the results and repeats until Claude answers. It keeps the last three screenshots in the conversation and replaces older ones with a short note, so long tasks do not grow without limit.
 

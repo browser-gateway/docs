@@ -19,15 +19,15 @@ This is a distinct surface from two others on the platform:
 
 | Surface | Base URL | Auth | Purpose |
 |---|---|---|---|
-| **Cloud Data API** (this page) | `https://cdp.browsergateway.io/v1` | Router key `Bearer bg_...` | One-shot browser actions |
-| [**Cloud CDP endpoint**](/cloud-cdp) | `wss://cdp.browsergateway.io/v1/connect?token=bg_...` | Router key in query string | Full CDP session for Puppeteer / Playwright |
+| **Cloud Data API** (this page) | `https://cdp.browsergateway.io/v1` | Project key `Bearer bg_...` | One-shot browser actions |
+| [**Cloud CDP endpoint**](/cloud-cdp) | `wss://cdp.browsergateway.io/v1/connect?token=bg_...` | Project key in query string | Full CDP session for Puppeteer / Playwright |
 | [**Cloud REST API**](/cloud-rest-api) | `https://app-api.browsergateway.com/v1` | Account token `Bearer bga_...` | Manage workspaces, providers, billing |
 
-The router key and the account token are separate systems. The router key powers CDP + Data API; the account token powers the control-plane API.
+The project key and the account token are separate systems. The project key powers CDP + Data API; the account token powers the control-plane API.
 
 ## Auth
 
-Every request carries the router key in the `Authorization` header:
+Every request carries the project key in the `Authorization` header:
 
 ```bash
 curl -X POST "https://cdp.browsergateway.io/v1/screenshot" \
@@ -44,7 +44,7 @@ curl -X POST "https://cdp.browsergateway.io/v1/screenshot?token=bg_YOUR_ROUTER_K
   -d '{"url":"https://example.com"}'
 ```
 
-The router key is the same one you paste into Puppeteer or Playwright for CDP connections. Find it on the **Keys & access** page in the dashboard. The key decides which router, and so which providers, serve the call.
+The project key is the same one you paste into Puppeteer or Playwright for CDP connections. Find it on the **Keys & access** page in the dashboard. The key decides which project, and so which providers, serve the call.
 
 ## Billing
 
@@ -59,13 +59,13 @@ Data API calls share the same monthly ceiling as [CDP sessions](/cloud-cdp). Pic
 | Response | Meaning | Counts as session? |
 |---|---|---|
 | 200 | Success | Yes |
-| 400 | Validation error, no providers on the router, or `provider` is not on this router | No |
-| 401 | Missing or wrong router key | No |
+| 400 | Validation error, no providers in the project, or `provider` is not in this project | No |
+| 401 | Missing or wrong project key | No |
 | 408 | The page or the provider connection timed out | No |
 | 413 | Response body exceeded the endpoint cap | No |
-| 429 | The router queue timed out waiting for a free provider (honour `Retry-After`), or too many failed auth attempts came from your IP | No |
+| 429 | The project queue timed out waiting for a free provider (honour `Retry-After`), or too many failed auth attempts came from your IP | No |
 | 500 | The browser action failed | No |
-| 503 | No provider available (all switched off, cooling down or at capacity), every provider failed to connect, or the router queue is full | No |
+| 503 | No provider available (all switched off, cooling down or at capacity), every provider failed to connect, or the project queue is full | No |
 
 Error bodies are JSON:
 
@@ -236,8 +236,8 @@ Pass `provider` to route the request to one specific backend (no failover):
 }
 ```
 
-If the pinned provider is not on the router, the response is HTTP 400. If it is cooling down or at capacity, the response is HTTP 503 with no failover attempted.
+If the pinned provider is not in the project, the response is HTTP 400. If it is cooling down or at capacity, the response is HTTP 503 with no failover attempted.
 
 ## Try it from the dashboard
 
-The **REST API** page in the dashboard has an interactive form for each of the three endpoints, autofilled with your active router key.
+The **REST API** page in the dashboard has an interactive form for each of the three endpoints, autofilled with your active project key.
