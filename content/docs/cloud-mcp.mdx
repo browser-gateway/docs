@@ -180,3 +180,33 @@ Agent sessions show an **Agent** label in the Sessions list and on the Overview.
 ## Tools
 
 The cloud serves the same tools as the [self-hosted server](/mcp#tools) except `browser_status`, plus the options above on `browser_session`.
+
+### Web task tools
+
+When [web tasks](/cloud-web-tasks) are on for your workspace, the server also lists one tool per request type. The project picks the service, checks the answer is real and tries another service when it is not, so the agent does not need to know which services exist.
+
+| Tool | Does |
+|---|---|
+| `web_read_page` | Reads one page and returns its main text |
+| `web_raw_page` | Returns one page's HTML exactly as the server sends it |
+| `web_screenshot` | Takes a picture of one page and returns a 7-day link |
+| `web_extract` | Finds named facts on one page |
+| `web_search` | Searches the web and returns links |
+| `web_answer` | Answers a question with sources, always marked unverified |
+| `web_crawl` | Starts reading many pages of one site in the background and returns a run id |
+| `web_task_status` | Reads a background run's progress and its next pages |
+| `web_task_cancel` | Stops a background run |
+
+Each tool's description tells the agent when to use it, which tool to use instead, what it returns and whether it costs anything, so agents pick the right one without extra prompting. The tools only read: none of them clicks, types or changes anything on a site.
+
+### Narrower tool lists
+
+Add a suffix to the address to list only part of the tools. The key or chat link stays the same.
+
+| Address | Tools |
+|---|---|
+| `/mcp` | Everything |
+| `/mcp/x/tasks` | Only the web task tools |
+| `/mcp/x/browser` | Only browser control: `browser_*`, `fetch_page`, `screenshot_page` |
+
+For chat links, add the suffix after the link: `https://cdp.browsergateway.io/mcp/u/bgl_.../x/tasks`. A tool from outside the chosen list is refused.

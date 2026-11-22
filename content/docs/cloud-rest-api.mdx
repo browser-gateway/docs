@@ -872,6 +872,44 @@ Response `{ "ok": true, "data": { "id": "whk_abc" } }`.
 
 Sends one `webhook.test` event, without retries. Response `{ "delivered": true, "attempts": 1 }`.
 
+### Web task services and settings
+
+[Web tasks](/cloud-web-tasks) run on the project address with the project key. Their services and settings are managed here with the account token. These paths sit under `https://app-api.browsergateway.com/web/v1/task`, not `/v1`.
+
+#### GET /web/v1/task/services
+
+Every service web tasks can use, the request types it runs and whether this workspace has its key.
+
+```json
+{
+  "ok": true,
+  "data": [
+    { "slug": "plain-fetch", "label": "Our plain fetch", "kinds": ["web.raw", "web.read"], "needsKey": false, "connected": true, "billsFailures": false, "connectedAt": null },
+    { "slug": "firecrawl", "label": "Firecrawl", "kinds": ["web.read", "web.raw", "web.search", "web.crawl", "web.extract"], "needsKey": true, "connected": true, "billsFailures": true, "connectedAt": 1795040278029 }
+  ]
+}
+```
+
+#### PUT /web/v1/task/services/:slug
+
+Connect or replace a service key: `{ "key": "fc-..." }`. Stored encrypted and never returned. Owner or admin. `DELETE /web/v1/task/services/:slug` removes it.
+
+#### GET /web/v1/task/settings
+
+```json
+{ "ok": true, "data": { "defaultPrefer": "cost", "disabledServices": [] } }
+```
+
+`PUT` with the same shape sets the default for `prefer` and switches services off for this workspace. Owner or admin.
+
+#### GET /web/v1/task/types
+
+The request types with what each takes and returns, and the services that can run it. Same as `GET /web/v1/types` on the project address.
+
+#### GET /web/v1/task/history
+
+The workspace's web task runs from the last 30 days, newest first, `?limit=` up to 200.
+
 ### Billing
 
 Money amounts are in US cents (`...Cents`) or in thousandths of a cent (`...Millicents`, 100,000 per dollar).
@@ -1102,4 +1140,5 @@ curl -s "$BASE/profiles" -H "Authorization: Bearer $TOKEN" -H "X-Workspace-Id: $
 
 - **Opening a browser session.** Use the [Cloud CDP endpoint](/cloud-cdp) with a **project key**, not a bearer.
 - **One-shot browser actions** (screenshot, content, scrape). Those live on the [Cloud Data API](/cloud-data-api), and each successful call counts as one session against the 10,000 per month ceiling.
+- **Running web tasks.** Those run on the project address with the project key. See [Cloud Web Tasks](/cloud-web-tasks).
 - **Self-hosted gateway management.** That is `http://your-host:9500/v1/*` with `BG_TOKEN`. See [Gateway REST API](/rest-api).
