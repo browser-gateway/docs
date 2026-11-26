@@ -33,6 +33,23 @@ providers:
     priority: 1
 ```
 
+#### Connect an existing Cloudbrowser desktop
+
+Cloudbrowser issues a browser-scoped CDP WebSocket URL for a running Chrome desktop. Follow the [virtual browser setup guide](https://cloudbrowser.tv/virtual-browser) to start the desktop and copy its CDP URL. Set `CLOUDBROWSER_CDP_URL` to the full URL in the gateway's environment.
+
+```yaml
+version: 1
+providers:
+  cloudbrowser:
+    url: "${CLOUDBROWSER_CDP_URL}"
+    limits:
+      maxConcurrent: 1
+```
+
+Run `HOST=127.0.0.1 browser-gateway serve --config ./gateway.yml`. For Playwright, pass `ws://127.0.0.1:9500/v1/connect?provider=cloudbrowser` to `chromium.connectOverCDP()`.
+
+This provider routes to one existing Chrome profile. `maxConcurrent` limits gateway connections. Each client that connects can control the desktop. For separate Chrome profiles, configure a provider entry for each desktop. If the desktop is paused, resume it in Cloudbrowser before reconnecting.
+
 ### browserserve (self-hosted runtime)
 
 [browserserve](/browserserve) is a self-hosted browser server from the same stack: one container hands out isolated Chrome sessions with a warm pool, host-derived capacity, and an optional profile channel. It is the only self-host option that carries a full profile, including IndexedDB and service workers, across sessions.
